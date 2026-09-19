@@ -134,28 +134,30 @@
 								{entry.workout?.performedOn ?? entry.workout?.plannedOn ?? ''}
 							</span>
 						</div>
-						<table class="num">
-							<thead>
-								<tr>
-									<th>Set</th>
-									<th>Reps</th>
-									<th>Weight</th>
-									<th>Type</th>
-									<th>Notes</th>
-								</tr>
-							</thead>
-							<tbody>
-								{#each entry.sets as set (set.id)}
+						<div class="table-wrap">
+							<table class="num">
+								<thead>
 									<tr>
-										<td>{set.setNumber}</td>
-										<td>{set.actualReps ?? set.targetReps ?? '—'}</td>
-										<td>{set.actualWeight ?? set.targetWeight ?? '—'}</td>
-										<td class="faint small">{set.setType}</td>
-										<td class="faint small">{set.notes ?? ''}</td>
+										<th>Set</th>
+										<th>Reps</th>
+										<th>Weight</th>
+										<th>Type</th>
+										<th>Notes</th>
 									</tr>
-								{/each}
-							</tbody>
-						</table>
+								</thead>
+								<tbody>
+									{#each entry.sets as set (set.id)}
+										<tr>
+											<td>{set.setNumber}</td>
+											<td>{set.actualReps ?? set.targetReps ?? '—'}</td>
+											<td>{set.actualWeight ?? set.targetWeight ?? '—'}</td>
+											<td class="faint small">{set.setType}</td>
+											<td class="faint small">{set.notes ?? ''}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -183,18 +185,6 @@
 		align-items: center;
 		margin-bottom: 0.5rem;
 		font-size: 0.9rem;
-	}
-
-	.two-col {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 0.5rem;
-	}
-
-	@media (min-width: 40rem) {
-		.two-col {
-			grid-template-columns: 1fr 1fr;
-		}
 	}
 
 	.section-title {

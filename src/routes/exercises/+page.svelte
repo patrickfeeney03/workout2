@@ -112,6 +112,12 @@
 		gap: 1rem;
 	}
 
+	/* Grid items default to min-width:auto, which lets the nowrap .clamp text
+	   below force the column (and the page) wider than the viewport. */
+	.layout > * {
+		min-width: 0;
+	}
+
 	@media (min-width: 60rem) {
 		.layout {
 			grid-template-columns: 1.6fr 1fr;

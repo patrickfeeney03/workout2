@@ -156,6 +156,19 @@ a:hover {
 	grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
 }
 
+/* Two fields side by side, collapsing to one column on narrow screens. */
+.two-col {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 0.5rem;
+}
+
+@media (min-width: 40rem) {
+	.two-col {
+		grid-template-columns: 1fr 1fr;
+	}
+}
+
 .spacer {
 	flex: 1;
 }

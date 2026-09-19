@@ -147,12 +147,6 @@
 		font-size: 0.9rem;
 	}
 
-	.two-col {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.5rem;
-	}
-
 	.workout-title {
 		margin: 0;
 		font-size: 1.05rem;

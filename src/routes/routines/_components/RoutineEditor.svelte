@@ -362,18 +362,6 @@
 		margin-bottom: 0.6rem;
 	}
 
-	.two-col {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 0.5rem;
-	}
-
-	@media (min-width: 40rem) {
-		.two-col {
-			grid-template-columns: 1fr 1fr;
-		}
-	}
-
 	.routine-head {
 		margin-bottom: 0.75rem;
 	}
