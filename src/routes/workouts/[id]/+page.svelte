@@ -1,0 +1,667 @@
+<script lang="ts">
+	import { applyAction, enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
+	import HoldToDelete from '$lib/components/HoldToDelete.svelte';
+	import type { ActionData, PageData } from './$types';
+
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	const workout = $derived(data.workout);
+	const allSets = $derived(data.exercises.flatMap((item) => item.sets));
+	const overallUpdated = $derived(latestStamp(allSets.map((set) => set.modifiedAt)));
+
+	const durationSeconds = $derived(workout.durationSeconds);
+	const durationHours = $derived(
+		durationSeconds === null ? '' : String(Math.floor(durationSeconds / 3600))
+	);
+	const durationMinutes = $derived(
+		durationSeconds === null ? '' : String(Math.floor((durationSeconds % 3600) / 60))
+	);
+	const durationSecs = $derived(durationSeconds === null ? '' : String(durationSeconds % 60));
+
+	/** Last `modified_at` among the given SQLite timestamps, shown as compact UTC. */
+	function latestStamp(values: (string | null | undefined)[]): string | null {
+		let latest: string | null = null;
+		for (const value of values) {
+			if (value && (latest === null || value > latest)) latest = value;
+		}
+		return latest ? `${latest.replace('T', ' ').slice(0, 16)} UTC` : null;
+	}
+
+	/** Auto-save on change: submit the enclosing form, keep the values the user just typed. */
+	function autoSave(event: Event) {
+		const element = event.currentTarget as HTMLFormElement | null;
+		element?.requestSubmit();
+	}
+
+	/**
+	 * `use:enhance` default resets the form after every success, which would wipe the value the user
+	 * just typed into an auto-saved field. Update without resetting instead, and fall back to
+	 * `applyAction` for failures/redirects/errors.
+	 */
+	const keepValues: SubmitFunction = () => async ({ result, update }) => {
+		if (result.type === 'success') {
+			await update({ reset: false });
+		} else {
+			await applyAction(result);
+		}
+	};
+
+	/**
+	 * Auto-save for fields that are only displayed by the input itself. Skips `invalidateAll`, so a
+	 * change posts one small request instead of re-running the whole D1-backed page load. The server
+	 * stores exactly the posted value, so `data` would not change for these actions anyway.
+	 */
+	const saveInPlace: SubmitFunction = () => async ({ result, update }) => {
+		if (result.type === 'success') {
+			await update({ reset: false, invalidateAll: false });
+		} else {
+			await applyAction(result);
+		}
+	};
+
+	function confirmSubmit(message: string) {
+		return (event: Event) => {
+			if (!confirm(message)) event.preventDefault();
+		};
+	}
+</script>
+
+<svelte:head>
+	<title>{workout.title ?? 'Workout'} · Gym Tracker</title>
+</svelte:head>
+
+<main class="page">
+	<div class="crumbs">
+		<a href="/workouts">Workouts</a>
+		<span class="faint">/</span>
+		<span class="truncate">{workout.title ?? 'Workout'}</span>
+	</div>
+
+	{#if form?.saved}
+		<p class="alert small">Saved</p>
+	{/if}
+
+	<section class="card">
+		<div class="head-grid">
+			<form
+				method="POST"
+				action="?/update_title"
+				use:enhance={keepValues}
+				onchange={autoSave}
+				class="field span-2"
+			>
+				<label for="title">Title</label>
+				<div class="row tight">
+					<input id="title" name="title" value={workout.title ?? ''} autocomplete="off" class="grow" />
+					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+				</div>
+			</form>
+
+			<form method="POST" action="?/update_planned_on" use:enhance={saveInPlace} onchange={autoSave} class="field">
+				<label for="planned_on">Planned date</label>
+				<div class="row tight">
+					<input
+						id="planned_on"
+						name="planned_on"
+						type="date"
+						value={workout.plannedOn ?? ''}
+						class="grow"
+						onclick={(event) => (event.currentTarget as HTMLInputElement).showPicker?.()}
+					/>
+					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+				</div>
+			</form>
+
+			<form method="POST" action="?/update_status" use:enhance={saveInPlace} onchange={autoSave} class="field">
+				<label for="status">Status</label>
+				<div class="row tight">
+					<select id="status" name="status" class="grow" value={workout.status ?? 'planned'}>
+						<option value="planned">Planned</option>
+						<option value="completed">Completed</option>
+						<option value="skipped">Skipped</option>
+					</select>
+					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+				</div>
+			</form>
+
+			<form method="POST" action="?/update_duration" use:enhance={saveInPlace} onchange={autoSave} class="field">
+				<label for="duration_hours">Duration</label>
+				<div class="row tight">
+					<input
+						id="duration_hours"
+						name="duration_hours"
+						type="number"
+						min="0"
+						class="small-input num"
+						placeholder="0"
+						value={durationHours}
+					/>
+					<span class="faint small">h</span>
+					<input
+						name="duration_minutes"
+						type="number"
+						min="0"
+						max="59"
+						class="small-input num"
+						placeholder="0"
+						value={durationMinutes}
+						aria-label="Duration minutes"
+					/>
+					<span class="faint small">m</span>
+					<input
+						name="duration_secs"
+						type="number"
+						min="0"
+						max="59"
+						class="small-input num"
+						placeholder="0"
+						value={durationSecs}
+						aria-label="Duration seconds"
+					/>
+					<span class="faint small">s</span>
+					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+				</div>
+			</form>
+
+			<form method="POST" action="?/update_body_weight" use:enhance={saveInPlace} onchange={autoSave} class="field">
+				<label for="body_weight">Body weight</label>
+				<div class="row tight">
+					<input
+						id="body_weight"
+						name="body_weight"
+						type="number"
+						step="any"
+						class="medium-input num"
+						value={workout.bodyWeight ?? ''}
+					/>
+					<span class="faint small">kg</span>
+					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+				</div>
+			</form>
+
+			<form method="POST" action="?/update_week" use:enhance={keepValues} onchange={autoSave} class="field span-2">
+				<label for="block_week_id">Week</label>
+				<div class="row tight">
+					<select
+						id="block_week_id"
+						name="block_week_id"
+						class="grow"
+						value={workout.blockWeekId === null ? '' : String(workout.blockWeekId)}
+					>
+						<option value="">-- None --</option>
+						{#each data.trainingBlocks as block (block.id)}
+							<optgroup label={block.name}>
+								{#each data.weeksByBlock[block.id] ?? [] as week (week.id)}
+									<option value={week.id}>Week {week.weekNumber} - {week.weekType ?? ''}</option>
+								{/each}
+							</optgroup>
+						{/each}
+					</select>
+					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+					{#if workout.blockWeekId && data.week?.trainingBlockId}
+						<a class="small" href={`/blocks/${data.week.trainingBlockId}/weeks/${workout.blockWeekId}`}>View</a>
+					{/if}
+				</div>
+			</form>
+
+			<form method="POST" action="?/create_week" use:enhance class="field span-2">
+				<label for="new_week_block_id">New week</label>
+				<div class="row tight">
+					<select id="new_week_block_id" name="training_block_id" class="grow">
+						{#each data.trainingBlocks as block (block.id)}
+							<option value={block.id} selected={block.id === data.currentBlockId}>{block.name}</option>
+						{/each}
+					</select>
+					<select name="week_number" class="grow" aria-label="Week number">
+						{#each data.weekNumbers as weekNumber (weekNumber)}
+							<option value={weekNumber} selected={weekNumber === data.nextWeekNumber}>
+								Week {weekNumber}
+							</option>
+						{/each}
+					</select>
+					<select name="week_type" class="grow" aria-label="Week type">
+						{#each data.weekTypes as weekType (weekType)}
+							<option value={weekType}>{weekType}</option>
+						{/each}
+					</select>
+					<button class="btn btn-sm" type="submit">Create</button>
+				</div>
+			</form>
+
+			<div class="row span-2 meta">
+				{#if workout.routineId}
+					<a class="small" href={`/routines/${workout.routineId}`}>Template routine</a>
+				{/if}
+				{#if overallUpdated}
+					<span class="faint small">Last updated: {overallUpdated}</span>
+				{/if}
+			</div>
+		</div>
+
+		<div class="row actions">
+			<form method="POST" action="?/duplicate" use:enhance>
+				<button class="btn btn-sm" type="submit">Duplicate workout</button>
+			</form>
+			<form method="POST" action="?/delete_workout" use:enhance>
+				<HoldToDelete label="Delete workout" />
+			</form>
+		</div>
+	</section>
+
+	<p class="alert small session-note">
+		⏱️ <strong>Note:</strong> Start this session in Google Health (Fitbit) on your watch or phone before
+		the first set.
+	</p>
+
+	<div class="stack">
+		{#each data.exercises as item (item.association.id)}
+			{@const wex = item.association}
+			{@const exercise = item.exercise}
+			{@const updated = latestStamp(item.sets.map((set) => set.modifiedAt))}
+			<form
+				method="POST"
+				action="?/update_workout_sets"
+				use:enhance={keepValues}
+				onchange={autoSave}
+				class="card exercise"
+			>
+				<input type="hidden" name="workout_exercise_id" value={wex.id} />
+				<input type="hidden" name="workout_id" value={workout.id} />
+
+				<div class="exercise-head">
+					<div class="move-col">
+						<button
+							type="submit"
+							formaction="?/move_exercise"
+							name="direction"
+							value="up"
+							class="icon-btn move-btn"
+							title="Move exercise up"
+							aria-label="Move exercise up">▲</button
+						>
+						<button
+							type="submit"
+							formaction="?/move_exercise"
+							name="direction"
+							value="down"
+							class="icon-btn move-btn"
+							title="Move exercise down"
+							aria-label="Move exercise down">▼</button
+						>
+					</div>
+
+					<div class="exercise-title">
+						{#if exercise}
+							<a href={`/exercises/${exercise.id}`}><h3>{exercise.name}</h3></a>
+						{:else}
+							<h3>Unknown exercise</h3>
+						{/if}
+						{#if exercise?.equipment}
+							<div class="faint small">⚙️ {exercise.equipment}</div>
+						{/if}
+						{#if exercise?.notes}
+							<div class="muted small italic">{exercise.notes}</div>
+						{/if}
+						{#if updated}
+							<div class="faint small num">Last set: {updated}</div>
+						{/if}
+					</div>
+
+					<button
+						type="submit"
+						formaction="?/delete_exercise"
+						class="btn btn-danger btn-sm"
+						onclick={confirmSubmit('Remove this exercise from the workout?')}>Remove</button
+					>
+				</div>
+
+				<div class="row tight target-rest">
+					<label for={`rest-${wex.id}`}>Target rest</label>
+					<input
+						id={`rest-${wex.id}`}
+						name="target_rest"
+						value={wex.targetRest ?? ''}
+						placeholder="x mins"
+						class="small-input wide"
+					/>
+				</div>
+
+				<div class="field">
+					<label for={`wex-notes-${wex.id}`}>Notes / warm-up</label>
+					<textarea
+						id={`wex-notes-${wex.id}`}
+						name="workout_exercise_notes"
+						rows="1"
+						placeholder="e.g. any special warm-up routine for this exercise">{wex.notes ?? ''}</textarea
+					>
+				</div>
+
+				<div class="set-rows">
+					{#each item.sets as set (set.id)}
+						<div class="set-row">
+							<div class="move-col">
+								<button
+									type="submit"
+									formaction="?/move_set_up"
+									name="set_id"
+									value={set.id}
+									class="icon-btn move-btn"
+									title="Move set up"
+									aria-label="Move set up">▲</button
+								>
+								<button
+									type="submit"
+									formaction="?/move_set_down"
+									name="set_id"
+									value={set.id}
+									class="icon-btn move-btn"
+									title="Move set down"
+									aria-label="Move set down">▼</button
+								>
+							</div>
+
+							<div class="set-fields">
+								<div class="row set-main">
+									<span class="set-num num">{set.setNumber}.</span>
+									<input
+										class="small-input num"
+										type="number"
+										step="any"
+										inputmode="decimal"
+										name={`sets[${set.id}][actual_reps]`}
+										value={set.actualReps === null ? '' : String(set.actualReps)}
+										placeholder={set.targetReps === null ? '' : String(set.targetReps)}
+										title={`Target reps: ${set.targetReps ?? '—'}`}
+										aria-label="Actual reps"
+									/>
+									<div class="field-inline">
+										<input
+											class="medium-input num"
+											type="number"
+											step="any"
+											inputmode="decimal"
+											name={`sets[${set.id}][actual_weight]`}
+											value={set.actualWeight === null ? '' : String(set.actualWeight)}
+											placeholder={set.targetWeight === null ? '' : String(set.targetWeight)}
+											title={`Target weight: ${set.targetWeight ?? '—'} kg`}
+											aria-label="Actual weight"
+										/>
+										<span class="faint small">kg</span>
+									</div>
+									<select
+										class="type-select"
+										name={`sets[${set.id}][set_type]`}
+										value={set.setType}
+										aria-label="Set type"
+									>
+										<option value="working">working</option>
+										<option value="warmup">warmup</option>
+									</select>
+									<HoldToDelete
+										label="×"
+										class="icon-btn delete-btn"
+										formaction="?/delete_set"
+										name="set_id"
+										value={set.id}
+										title="Hold to delete set"
+										aria-label="Hold to delete set"
+									/>
+								</div>
+								<textarea
+									class="set-notes"
+									name={`sets[${set.id}][notes]`}
+									rows="1"
+									placeholder="Add note...">{set.notes ?? ''}</textarea
+								>
+							</div>
+						</div>
+					{/each}
+					{#if item.sets.length === 0}
+						<p class="muted small">No sets yet. Add a warm-up or working set below.</p>
+					{/if}
+				</div>
+
+				<div class="row">
+					<button type="submit" formaction="?/add_blank_set_start" class="btn btn-sm">
+						+ Warm-up set (top)
+					</button>
+					<button type="submit" formaction="?/add_blank_set" class="btn btn-sm">+ Add set</button>
+					<button type="submit" class="btn btn-sm btn-primary">Save sets</button>
+				</div>
+			</form>
+		{/each}
+	</div>
+
+	<details class="card add-exercise">
+		<summary>Add exercise to workout</summary>
+		<form method="POST" action="?/add_exercise" use:enhance class="stack-sm inner">
+			<div class="field">
+				<label for="exercise_id">Existing exercises</label>
+				<select id="exercise_id" name="exercise_id">
+					<option value="">-- Choose an exercise --</option>
+					{#each Object.entries(data.exerciseGroups) as [pattern, list] (pattern)}
+						<optgroup label={pattern}>
+							{#each list as exercise (exercise.id)}
+								<option value={exercise.id}>
+									{exercise.name}{exercise.primaryMuscle ? ` - ${exercise.primaryMuscle}` : ''}
+								</option>
+							{/each}
+						</optgroup>
+					{/each}
+				</select>
+			</div>
+			<div class="field">
+				<label for="new_exercise_name">Or quick-add a new exercise</label>
+				<input id="new_exercise_name" name="new_exercise_name" placeholder="e.g. 100m Sprints" />
+				<small class="faint">Anything quick-added is created in the exercises database.</small>
+			</div>
+			<button class="btn btn-primary btn-sm" type="submit">Add to workout</button>
+		</form>
+	</details>
+</main>
+
+<style>
+	.crumbs {
+		display: flex;
+		gap: 0.4rem;
+		align-items: center;
+		margin-bottom: 0.5rem;
+		font-size: 0.9rem;
+	}
+
+	.truncate {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.head-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: 0.6rem;
+	}
+
+	.span-2 {
+		grid-column: 1 / -1;
+	}
+
+	@media (min-width: 40rem) {
+		.head-grid {
+			grid-template-columns: 1fr 1fr;
+		}
+	}
+
+	.tight {
+		gap: 0.35rem;
+		margin: 0;
+	}
+
+	.tight input,
+	.tight select {
+		margin: 0;
+	}
+
+	.grow {
+		flex: 1 1 8rem;
+		width: auto;
+		min-width: 0;
+	}
+
+	.meta {
+		gap: 0.75rem;
+	}
+
+	.actions {
+		margin-top: 0.75rem;
+		gap: 0.5rem;
+	}
+
+	.actions form {
+		margin: 0;
+	}
+
+	.session-note {
+		margin: 0.75rem 0;
+	}
+
+	.exercise {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+
+	.exercise-head {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+	}
+
+	.exercise-head h3 {
+		margin: 0;
+		font-size: 1.05rem;
+	}
+
+	.exercise-title {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.italic {
+		font-style: italic;
+	}
+
+	.move-col {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		flex: 0 0 auto;
+	}
+
+	.move-btn {
+		min-width: 2.75rem;
+		min-height: 2.75rem;
+		padding: 0.2rem;
+		font-size: 0.7rem;
+		color: var(--text-muted);
+	}
+
+	.target-rest {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+
+	.target-rest label {
+		margin: 0;
+		white-space: nowrap;
+	}
+
+	.wide {
+		width: 9ch;
+	}
+
+	.set-rows {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--border);
+		border-radius: calc(var(--radius) - 2px);
+	}
+
+	.set-row {
+		display: flex;
+		gap: 0.4rem;
+		padding: 0.4rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.set-row:last-child {
+		border-bottom: none;
+	}
+
+	.set-fields {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.set-main {
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.set-num {
+		min-width: 1.75rem;
+		color: var(--text-muted);
+		font-size: 0.85rem;
+	}
+
+	.type-select {
+		width: auto;
+		min-width: 6.5rem;
+		min-height: 2.5rem;
+		padding: 0.25rem 0.4rem;
+		font-size: 0.85rem;
+	}
+
+	:global(.delete-btn) {
+		color: var(--text-faint);
+		border-color: transparent;
+		background: transparent;
+		font-size: 1.25rem;
+		line-height: 1;
+	}
+
+	@media (hover: hover) and (pointer: fine) {
+		:global(.delete-btn):hover {
+			color: var(--danger);
+			border-color: transparent;
+		}
+	}
+
+	.set-notes {
+		min-height: 2.25rem;
+		padding: 0.35rem 0.5rem;
+		font-size: 0.85rem;
+		resize: vertical;
+		field-sizing: content;
+	}
+
+	.add-exercise {
+		margin-top: 0.75rem;
+	}
+
+	.add-exercise summary {
+		cursor: pointer;
+		font-weight: 600;
+		min-height: 2.75rem;
+		display: flex;
+		align-items: center;
+	}
+
+	.add-exercise .inner {
+		margin-top: 0.6rem;
+	}
+</style>

@@ -1,0 +1,36 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# agent scratch
+.agent-prompts
+.agent-logs
+
+# import/transfer scratch
+tmp/
+
+# migration source dump + uploaded media (personal data; never commit)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+data/uploads/
