@@ -4,6 +4,16 @@
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"compatibility_date": "2026-08-22",
 	"compatibility_flags": ["nodejs_als"],
+	// The D1 primary lives in WEUR (LHR). Measured from Lima: a D1 round trip costs ~230ms when the
+	// Worker runs at the receiving edge (GIG) but ~15ms when it runs next to the primary, and each
+	// request still makes at least one D1 round trip. Targeted placement removes that hop for reads
+	// and writes alike. `request.cf.colo` keeps reporting the receiving edge, so verify placement
+	// with a Worker->D1 round-trip measurement, not cf.colo. Re-evaluate if a read replica starts
+	// serving the Americas (see docs/REGIONAL-PERFORMANCE.md).
+	"placement": {
+		"mode": "targeted",
+		"region": "aws:eu-west-2"
+	},
 	// Placement is intentionally off. The Worker runs at its edge default, and D1 read replication
 	// (plus the Sessions API in src/hooks.server.ts) serves reads from the replica nearest the user.
 	// Smart Placement is a traffic-based optimization: it needs requests from several locations

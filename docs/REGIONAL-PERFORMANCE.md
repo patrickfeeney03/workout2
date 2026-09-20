@@ -1,10 +1,10 @@
-# Regional performance: WEUR primary, read replication, placement off
+# Regional performance: WEUR primary, read replication, targeted placement
 
 Decision record and measurements for the Ireland-first / occasional-Peru setup. One Worker, one
 D1 database, one set of routes and one schema — no second deployment, no geo-router.
 
-- **Worker**: `gym-tracker` (single deployment, edge default placement — `placement` removed from
-  `wrangler.jsonc`)
+- **Worker**: `gym-tracker` (single deployment, targeted placement to `aws:eu-west-2` — next to
+  the WEUR primary; see the placement section below)
 - **D1 primary**: `gym-tracker-weur` (`8a2604e1-a45b-4c94-a61c-c635c19e4035`), created WEUR
 - **Read replication**: `mode: auto` (enabled 2026-09-20 via the D1 REST API)
 - **Sessions API**: every request runs through a D1 session with sequential consistency; the
@@ -16,12 +16,17 @@ D1 database, one set of routes and one schema — no second deployment, no geo-r
 ## Why this shape
 
 The previous setup pinned the Worker to `aws:us-east-1` so its D1 calls would be local to the ENAM
-primary. That made every request from Ireland pay the request-forwarding trip, and did nothing for
-Peru. Locating the primary in WEUR puts the writes where the usual training happens; read
-replication plus bookmarks lets the travelling browser read from a replica while never losing
-read-after-write consistency. Placement stays off because Smart Placement is a traffic-based
-optimization that needs volume from several locations and moves *all* requests — including reads a
-replica could serve locally — to one location.
+primary, but every request from Ireland then paid the request-forwarding trip. Locating the primary
+in WEUR puts the write primary in Europe where the usual training happens; read replication plus
+bookmarks let the travelling browser read from a replica without losing read-after-write
+consistency.
+
+Placement was initially left off, then measured (see “Placement experiment” below): while no read
+replica serves American traffic, **every request makes at least one D1 round trip, so moving the
+Worker next to the primary wins.** From Lima the Worker→D1 round trip is ~230 ms at the receiving
+edge but ~15 ms under targeted placement; the request-forwarding leg costs less than the D1 round
+trips it removes. `request.cf.colo` still reports the receiving edge (GIG), so placement has to be
+verified by measuring a D1 round trip, not `cf.colo`.
 
 ## Code changes that came with the move
 
@@ -109,10 +114,32 @@ What changed:
   subquery, so there is no ownership pre-read and no separate status read. Saving a set no longer
   re-fetches the page: the action returns the resulting status and the page reflects it
   (`invalidateAll: false`), which also removes the re-render that followed every edit.
+What did **not** change in that round: the page batch still read from the LHR primary (~250 ms from
+GIG) because no read replica was serving American traffic at the time of measurement.
 
-What did **not** change: the page batch still reads from the LHR primary (~250 ms from GIG) because
-no read replica was serving American traffic at the time of measurement. Once one is, both the
-batch and the (cache-miss) session lookup should shorten on their own.
+## Placement experiment (2026-09-20, later)
+
+The placement configuration was tested by toggling it on the same deployment and measuring a
+`SELECT` from the Worker (three samples each):
+
+| Worker placement | Worker→D1 round trip (Lima) |
+| --- | --- |
+| none (runs at receiving edge GIG) | 229–322 ms |
+| `targeted` `aws:eu-west-2` (next to primary LHR) | **11–19 ms** |
+
+Playwright phone emulation (Pixel 7, 4× CPU, 150 ms latency) on the workouts flow:
+
+| | placement off | placement on |
+| --- | --- | --- |
+| `/workouts` full load TTFB | 887–1094 ms | **627–637 ms** |
+| tap first (preloaded) workout → rendered | 533–565 ms | **340 ms** (one 712 ms outlier) |
+| tap another workout → rendered | 554–631 ms | **463–602 ms** |
+
+Placement also makes writes local, and keeps Ireland fast (Dublin→London is ~15 ms). The trade-off
+is the request-forwarding leg for every request; that leg only pays off while each request still
+needs a D1 round trip. Re-evaluate if a read replica starts serving the Americas: an edge Worker
+reading from a US replica could then be comparable for reads, though writes would still favour
+placement. Verify with the same D1 round-trip probe rather than `cf.colo`.
 
 ## Measurements
 
@@ -178,20 +205,23 @@ for p in / /workouts /workouts/<id> /blocks/<block>/weeks/<week>; do
 done
 ```
 
-Record Ireland numbers in this file before considering the Smart Placement trial below.
+Record Ireland numbers in this file when convenient; they are still missing.
 
-## Next: Smart Placement trial (only after measuring)
+## Re-checking placement
 
-The baseline above is placement-off. To trial Smart Placement, add to `wrangler.jsonc`:
+Placement verification needs a D1 round trip, not `cf.colo` (it reports the receiving edge). A
+temporary route with `Date.now()` around a query is enough:
 
-```jsonc
-"placement": { "mode": "smart" }
+```ts
+const session = env.DB.withSession('first-unconstrained');
+const t0 = Date.now();
+const result = await session.prepare('SELECT 1 AS one').all();
+// result.meta.served_by_region / served_by_colo / served_by_primary + Date.now() - t0
 ```
 
-deploy, repeat the same measurements, and keep it only if median **and tail** latency improve
-without regressing Ireland's main workflows. Otherwise remove it and redeploy. Smart Placement
-considers where the Worker has already run and needs traffic from multiple locations, so a lightly
-used personal app may never move.
+Placement off shows a round trip close to the distance to WEUR (~230 ms from Lima); placement on
+shows single-digit to low-tens milliseconds. Re-run this if read replication starts serving the
+Americas, and revisit whether the forwarding leg still pays off.
 
 ## Rollback
 
