@@ -61,6 +61,28 @@ for the new database, so the cookie name carries a version; it was introduced to
 database, and a future database replacement must bump `D1_BOOKMARK_COOKIE` in
 `src/lib/server/d1.ts` (`_v1` → `_v2`).
 
+## Follow-up: workout detail round trips (2026-09-20, later)
+
+Clicking a workout still took seconds. Temporary `Server-Timing` instrumentation showed the whole
+request handler was D1 round trips: auth 230 ms + wave 1 240 ms + wave 2 265 ms, i.e. three
+sequential Worker→WEUR round trips (~250 ms each from a South American Worker), with rendering
+negligible. The second wave was seven queries, but concurrent queries in a session do parallelize
+(a probe measured five parallel queries in ~250 ms and five serial in ~1.2 s), so the fix was
+collapsing waves, not adding concurrency.
+
+`getWorkoutDetail` (`src/lib/server/services/workoutDetail.ts`) now runs the ownership read and
+every page read in a single `db.batch()`: workout, workout exercises, sets, exercises, the exercise
+picker, training blocks, weeks and the current week. No statement depends on another's result
+(joins and a subquery keyed by workout id), so all eight are prepared up front. Handler time went
+from ~1.18 s (auth + 2 waves) to ~0.49 s (auth + 1 batch); `/workouts/76` TTFB median fell from
+~1.35 s to ~0.9–1.1 s (network variance to LHR dominates the remainder). `app.html` also sets
+`data-sveltekit-preload-code="eager"` so the route's ~18 KB JS chunk is fetched while the list page
+is idle instead of after the click — SvelteKit does not preload code by default.
+
+Remaining per-request round trips are the auth session lookup (one) and the page batch (one).
+Other pages still do sequential waves (week details is four reads, ownership check first); the same
+batch pattern applies if they feel slow.
+
 ## Measurements
 
 All timings below are `time_starttransfer` from curl on the user's machine in Lima, Peru. Median of

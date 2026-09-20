@@ -4,7 +4,6 @@ import { int, intOr, num, optStr, str } from '$lib/server/forms';
 import { bind, run } from '$lib/server/db';
 import { WEEK_NUMBERS, WEEK_TYPES } from '$lib/server/services/blocks';
 import * as blocks from '$lib/server/services/blocks';
-import * as catalog from '$lib/server/services/catalog';
 import {
 	addExerciseToWorkout,
 	createEmptyWorkoutSet,
@@ -14,7 +13,6 @@ import {
 	duplicateWorkout,
 	getWorkout,
 	getWorkoutExercise,
-	getWorkoutExercisesAndSetsArray,
 	getWorkoutExercisesForWorkout,
 	moveWorkoutSet,
 	saveWorkoutExercise,
@@ -24,6 +22,7 @@ import {
 	type WorkoutExerciseUpdate,
 	type WorkoutSetUpdate
 } from '$lib/server/services/workouts';
+import { getWorkoutDetail } from '$lib/server/services/workoutDetail';
 import { moveExercise } from '$lib/server/services/common';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -84,32 +83,19 @@ export const load: PageServerLoad = async ({ locals, url, params }) => {
 	const user = requireUser(locals, url);
 	const workoutId = requireWorkoutId(params);
 
-	const [workout, workoutExercises] = await Promise.all([
-		getWorkout(locals.db, workoutId, user.id),
-		getWorkoutExercisesForWorkout(locals.db, workoutId, user.id)
-	]);
-	if (!workout) {
+	// One ownership read + one batch of every read the page needs, instead of two waves of
+	// 2 + 5 separate D1 round trips. See `$lib/server/services/workoutDetail`.
+	const detail = await getWorkoutDetail(locals.db, user.id, workoutId);
+	if (!detail) {
 		error(404, 'Not found');
 	}
 
-	// One wave: the mapped sets, the exercise picker, the periodization lists and the current week
-	// are independent reads. D1 calls are network round trips, so keep awaits out of the hot path.
-	const [setsAndExercises, exerciseGroups, trainingBlocks, weeksByBlock, week] = await Promise.all([
-		getWorkoutExercisesAndSetsArray(locals.db, workoutExercises),
-		catalog.getExercisesGroupedByMovementPattern(locals.db, user.id),
-		blocks.getTrainingBlocks(locals.db, user.id),
-		blocks.getWeeksByBlock(locals.db, user.id),
-		workout.blockWeekId ? blocks.getBlockWeek(locals.db, workout.blockWeekId, user.id) : null
-	]);
+	const { workout, exercises, exerciseGroups, trainingBlocks, weeksByBlock, week } = detail;
 
 	const currentBlockId = week?.trainingBlockId ?? 0;
 	const nextWeekNumber = currentBlockId
 		? blocks.nextWeekNumberFor(weeksByBlock[currentBlockId] ?? [])
 		: 1;
-
-	const exercises = workoutExercises.map(
-		(association) => setsAndExercises[association.id]
-	);
 
 	return {
 		workout,
