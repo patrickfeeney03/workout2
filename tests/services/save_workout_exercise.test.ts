@@ -39,7 +39,7 @@ describe('saveWorkoutExercise', () => {
 		await seedWorkoutSet({ id: 101, workoutExerciseId: 10, setNumber: 2 });
 		await seedWorkoutSet({ id: 102, workoutExerciseId: 10, setNumber: 3 });
 
-		const saved = await saveWorkoutExercise(
+		const result = await saveWorkoutExercise(
 			db,
 			1,
 			10,
@@ -51,7 +51,8 @@ describe('saveWorkoutExercise', () => {
 			{ targetRest: '2 mins', notes: 'keep elbows tucked' }
 		);
 
-		expect(saved).toBe(true);
+		expect(result.saved).toBe(true);
+		expect(result.status).toBe('completed');
 
 		const sets = await queryAll<Record<string, unknown>>(
 			'SELECT id, actual_reps, actual_weight, set_type, notes FROM workout_sets ORDER BY id'
@@ -118,9 +119,10 @@ describe('saveWorkoutExercise', () => {
 		await seedWorkoutExercise({ id: 10, workoutId: 1, exerciseId: 5, sortOrder: 1 });
 		await seedWorkoutSet({ id: 100, workoutExerciseId: 10, setNumber: 1 });
 
-		const saved = await saveWorkoutExercise(db, 1, 10, [setUpdate(100, 10, 100)]);
+		const result = await saveWorkoutExercise(db, 1, 10, [setUpdate(100, 10, 100)]);
 
-		expect(saved).toBe(false);
+		expect(result.saved).toBe(false);
+		expect(result.status).toBeNull();
 		const set = await queryOne<Record<string, unknown>>(
 			'SELECT actual_reps FROM workout_sets WHERE id = 100'
 		);
@@ -150,8 +152,9 @@ describe('saveWorkoutExercise', () => {
 		await seedWorkoutSet({ id: 100, workoutExerciseId: 10, setNumber: 1 });
 		await seedWorkoutSet({ id: 101, workoutExerciseId: 10, setNumber: 2 });
 
-		await saveWorkoutExercise(db, 1, 10, [setUpdate(100, 8, 80), setUpdate(101, 8, null)]);
+		const result = await saveWorkoutExercise(db, 1, 10, [setUpdate(100, 8, 80), setUpdate(101, 8, null)]);
 
+		expect(result.status).toBe('planned');
 		expect(await workoutStatus(1)).toBe('planned');
 	});
 

@@ -51,6 +51,9 @@
 	const queued = new Map<string, { form: HTMLFormElement; submitter: HTMLElement | null }>();
 	const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+	/** Status returned by the last save, so set saves do not need a full page reload. */
+	let workoutStatus = $state<string | null>(null);
+
 	function setSaveState(name: string, state: SaveStateValue) {
 		const timer = idleTimers.get(name);
 		if (timer) clearTimeout(timer);
@@ -86,6 +89,10 @@
 				inFlight.delete(name);
 
 				if (result.type === 'success') {
+					// The server returns the (possibly auto-completed) status so the page can reflect it
+					// without re-running the whole load; any other success falls back to the loaded data.
+					const status = (result.data as { status?: unknown } | undefined)?.status;
+					workoutStatus = typeof status === 'string' ? status : null;
 					const next = queued.get(name);
 					queued.delete(name);
 					if (next) {
@@ -163,7 +170,7 @@
 			<form method="POST" action="?/update_status" use:enhance={enhanceForm('status', { invalidateAll: false })} onchange={autoSave} class="field">
 				<label for="status">Status</label>
 				<div class="row tight">
-					<select id="status" name="status" class="grow" value={workout.status ?? 'planned'}>
+					<select id="status" name="status" class="grow" value={workoutStatus ?? workout.status ?? 'planned'}>
 						<option value="planned">Planned</option>
 						<option value="completed">Completed</option>
 						<option value="skipped">Skipped</option>
@@ -313,7 +320,7 @@
 			<form
 				method="POST"
 				action="?/update_workout_sets"
-				use:enhance={enhanceForm(`exercise-${wex.id}`)}
+				use:enhance={enhanceForm(`exercise-${wex.id}`, { invalidateAll: false })}
 				onchange={autoSave}
 				class="card exercise"
 			>

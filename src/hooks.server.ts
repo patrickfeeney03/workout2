@@ -1,5 +1,6 @@
 import type { Handle, RequestEvent } from '@sveltejs/kit';
-import { SESSION_COOKIE, getSessionUser } from '$lib/server/session';
+import { SESSION_COOKIE } from '$lib/server/session';
+import { getCachedSessionUser } from '$lib/server/sessionCache';
 import {
 	D1_BOOKMARK_COOKIE,
 	d1BookmarkCookieOptions,
@@ -28,7 +29,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	const sessionId = event.cookies.get(SESSION_COOKIE);
 	if (sessionId) {
-		const user = await getSessionUser(session, sessionId);
+		const user = await getCachedSessionUser(
+			session,
+			event.platform?.caches,
+			event.platform?.ctx,
+			sessionId
+		);
 		if (user) {
 			event.locals.user = user;
 		} else {

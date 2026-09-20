@@ -1,8 +1,18 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { preloadData } from '$app/navigation';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// SvelteKit keeps one preloaded navigation at a time, and a phone has no hover: warm the first
+	// (most recent) workout while the list is idle so tapping it renders without a data round trip.
+	// Other links are preloaded by the router on touchstart, just before the tap.
+	onMount(() => {
+		const first = document.querySelector<HTMLAnchorElement>('a[href^="/workouts/"]');
+		if (first) void preloadData(first.href).catch(() => {});
+	});
 
 	function ucfirst(value: string | null): string {
 		return value ? value.charAt(0).toUpperCase() + value.slice(1) : '';

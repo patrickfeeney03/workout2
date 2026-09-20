@@ -471,14 +471,22 @@ export interface WorkoutExerciseUpdate {
 	notes?: string | null;
 }
 
+/** Result of `saveWorkoutExercise`: whether the exercise was owned, and the workout status after
+ * the completion check so callers can update the page without re-fetching it. */
+export interface SaveWorkoutExerciseResult {
+	saved: boolean;
+	status: string | null;
+}
+
 /**
  * Saves every posted set of one workout exercise, plus its rest and notes, as a single atomic
  * `db.batch`, then completes the workout when every active set has both actual reps and weight.
- * The completion statement runs last in the same batch, so it sees the just-updated values.
+ * The completion statement runs second to last, so it sees the just-updated values; a final
+ * `SELECT` in the same batch returns the resulting status (no extra round trip).
  *
  * Set updates are scoped to `workout_exercise_id` (and `is_deleted = 0`), so a posted id from
  * another exercise or user is ignored — the same result as the old per-set ownership lookup, but
- * without one read per set. Returns false when the workout exercise is not owned by the user.
+ * without one read per set. Returns `saved: false` when the workout exercise is not owned.
  */
 export async function saveWorkoutExercise(
 	db: Db,
@@ -486,37 +494,37 @@ export async function saveWorkoutExercise(
 	workoutExerciseId: number,
 	updates: WorkoutSetUpdate[],
 	fields: WorkoutExerciseUpdate = {}
-): Promise<boolean> {
-	const owned = await first<{ workout_id: number }>(
-		bind(
-			db,
-			`SELECT we.workout_id
-			FROM workout_exercises we
-			INNER JOIN workouts w ON w.id = we.workout_id
-			WHERE we.id = ? AND w.user_id = ?`,
-			[workoutExerciseId, userId]
-		)
-	);
-	if (!owned) {
-		return false;
-	}
-	const workoutId = Number(owned.workout_id);
+): Promise<SaveWorkoutExerciseResult> {
+	// Every statement is scoped to the owning user, so the batch needs no ownership pre-read:
+	// exercise and set updates check the exercise's owner in an EXISTS, and the completion plus the
+	// final status read resolve the workout through the exercise id. A non-owned exercise therefore
+	// changes nothing and the final read returns no row.
+	const ownerExists = `EXISTS (
+		SELECT 1
+		FROM workout_exercises we
+		INNER JOIN workouts w ON w.id = we.workout_id
+		WHERE we.id = ? AND w.user_id = ?
+	)`;
 
 	const statements: D1PreparedStatement[] = [];
 
 	if (fields.targetRest !== undefined) {
 		statements.push(
-			bind(db, 'UPDATE workout_exercises SET target_rest = ? WHERE id = ?', [
+			bind(db, `UPDATE workout_exercises SET target_rest = ? WHERE id = ? AND ${ownerExists}`, [
 				fields.targetRest,
-				workoutExerciseId
+				workoutExerciseId,
+				workoutExerciseId,
+				userId
 			])
 		);
 	}
 	if (fields.notes !== undefined) {
 		statements.push(
-			bind(db, 'UPDATE workout_exercises SET notes = ? WHERE id = ?', [
+			bind(db, `UPDATE workout_exercises SET notes = ? WHERE id = ? AND ${ownerExists}`, [
 				fields.notes,
-				workoutExerciseId
+				workoutExerciseId,
+				workoutExerciseId,
+				userId
 			])
 		);
 	}
@@ -527,14 +535,17 @@ export async function saveWorkoutExercise(
 				db,
 				`UPDATE workout_sets
 				SET actual_reps = ?, actual_weight = ?, set_type = ?, notes = ?
-				WHERE id = ? AND workout_exercise_id = ? AND is_deleted = 0`,
+				WHERE id = ? AND workout_exercise_id = ? AND is_deleted = 0
+					AND ${ownerExists}`,
 				[
 					update.actualReps,
 					update.actualWeight,
 					update.setType,
 					update.notes,
 					update.id,
-					workoutExerciseId
+					workoutExerciseId,
+					workoutExerciseId,
+					userId
 				]
 			)
 		);
@@ -545,28 +556,54 @@ export async function saveWorkoutExercise(
 	statements.push(
 		bind(
 			db,
-			`UPDATE workouts
+			`WITH target(workout_id) AS (
+				SELECT we.workout_id
+				FROM workout_exercises we
+				INNER JOIN workouts w ON w.id = we.workout_id
+				WHERE we.id = ? AND w.user_id = ?
+			)
+			UPDATE workouts
 			SET status = 'completed'
-			WHERE id = ? AND user_id = ? AND status != 'completed'
+			WHERE id = (SELECT workout_id FROM target)
+				AND user_id = ? AND status != 'completed'
 				AND EXISTS (
 					SELECT 1
 					FROM workout_sets ws
 					INNER JOIN workout_exercises we ON we.id = ws.workout_exercise_id
-					WHERE we.workout_id = ? AND we.is_deleted = 0 AND ws.is_deleted = 0
+					WHERE we.workout_id = (SELECT workout_id FROM target)
+						AND we.is_deleted = 0 AND ws.is_deleted = 0
 				)
 				AND NOT EXISTS (
 					SELECT 1
 					FROM workout_sets ws
 					INNER JOIN workout_exercises we ON we.id = ws.workout_exercise_id
-					WHERE we.workout_id = ? AND we.is_deleted = 0 AND ws.is_deleted = 0
+					WHERE we.workout_id = (SELECT workout_id FROM target)
+						AND we.is_deleted = 0 AND ws.is_deleted = 0
 						AND (ws.actual_reps IS NULL OR ws.actual_weight IS NULL)
 				)`,
-			[workoutId, userId, workoutId, workoutId]
+			[workoutExerciseId, userId, userId]
 		)
 	);
 
-	await db.batch(statements);
-	return true;
+	// Final read in the same batch: a row means the exercise is owned and gives the caller the
+	// resulting status without another round trip.
+	statements.push(
+		bind(
+			db,
+			`SELECT status FROM workouts
+			WHERE id = (SELECT workout_id FROM workout_exercises WHERE id = ?)
+				AND user_id = ?`,
+			[workoutExerciseId, userId]
+		)
+	);
+
+	const results = await db.batch<Row>(statements);
+	const statusRow = results[results.length - 1]?.results?.[0];
+	if (!statusRow) {
+		return { saved: false, status: null };
+	}
+	const status = statusRow.status;
+	return { saved: true, status: status === null || status === undefined ? null : String(status) };
 }
 
 export async function deleteWorkoutExercise(

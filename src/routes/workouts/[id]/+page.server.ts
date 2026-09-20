@@ -143,11 +143,13 @@ export const actions: Actions = {
 			fields.notes = optStr(form, 'workout_exercise_notes');
 		}
 
-		if (!(await saveWorkoutExercise(locals.db, user.id, workoutExerciseId, updates, fields))) {
+		const result = await saveWorkoutExercise(locals.db, user.id, workoutExerciseId, updates, fields);
+		if (!result.saved) {
 			error(404, 'Not found');
 		}
 
-		return { saved: true };
+		// `status` lets the page show the auto-completed state without re-running the whole load.
+		return { saved: true, status: result.status };
 	},
 
 	add_exercise: async ({ request, locals, url, params }) => {
@@ -301,6 +303,7 @@ export const actions: Actions = {
 					user.id
 				])
 			);
+			return { saved: true, status };
 		}
 
 		return { saved: true };

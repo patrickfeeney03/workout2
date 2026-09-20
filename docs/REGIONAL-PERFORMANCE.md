@@ -83,6 +83,37 @@ Remaining per-request round trips are the auth session lookup (one) and the page
 Other pages still do sequential waves (week details is four reads, ownership check first); the same
 batch pattern applies if they feel slow.
 
+## Follow-up: mobile (2026-09-20, later)
+
+A phone still felt slow. Playwright with a Pixel 7 profile, 4–6× CPU throttling and 150–300 ms
+network latency measured the production deployment:
+
+| | before | after |
+| --- | --- | --- |
+| workouts list load | ~1.5 s | ~1.4–1.6 s |
+| tap first (preloaded) workout → rendered | ~1.06–1.25 s | **~0.31–0.42 s** |
+| tap any other workout → rendered | ~1.06–1.25 s | **~0.55–0.64 s** |
+| save a set → “Saved” | full page reload (~1.5 s+) | **~0.85 s, no reload** |
+
+What changed:
+
+- **Session lookup edge cache** (`src/lib/server/sessionCache.ts`). Every request authenticates
+  before routing; that D1 round trip is now cached per colo for 60 s and deleted on logout. This is
+  what removed one London round trip from most navigations, since each tap fetches data and the
+  layout.
+- **First-link data preload** on the workouts list (`onMount` → `preloadData`). SvelteKit keeps only
+  one data preload at a time and there is no hover on a phone, so the most recent workout is warmed
+  while the list is idle. Other links are preloaded on `touchstart`, just before the tap.
+- **One-round-trip saves** (`saveWorkoutExercise`). Ownership is now enforced inside every batched
+  statement (`EXISTS` on the owning workout) and the completion targets the workout through a
+  subquery, so there is no ownership pre-read and no separate status read. Saving a set no longer
+  re-fetches the page: the action returns the resulting status and the page reflects it
+  (`invalidateAll: false`), which also removes the re-render that followed every edit.
+
+What did **not** change: the page batch still reads from the LHR primary (~250 ms from GIG) because
+no read replica was serving American traffic at the time of measurement. Once one is, both the
+batch and the (cache-miss) session lookup should shorten on their own.
+
 ## Measurements
 
 All timings below are `time_starttransfer` from curl on the user's machine in Lima, Peru. Median of
