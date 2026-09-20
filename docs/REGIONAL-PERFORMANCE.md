@@ -21,12 +21,14 @@ in WEUR puts the write primary in Europe where the usual training happens; read 
 bookmarks let the travelling browser read from a replica without losing read-after-write
 consistency.
 
-Placement was initially left off, then measured (see “Placement experiment” below): while no read
-replica serves American traffic, **every request makes at least one D1 round trip, so moving the
-Worker next to the primary wins.** From Lima the Worker→D1 round trip is ~230 ms at the receiving
-edge but ~15 ms under targeted placement; the request-forwarding leg costs less than the D1 round
-trips it removes. `request.cf.colo` still reports the receiving edge (GIG), so placement has to be
-verified by measuring a D1 round trip, not `cf.colo`.
+Placement was initially left off, then measured (see “Placement experiment” below). The read replica
+in ENAM did not start serving queries until a few hours after replication was enabled; once it did,
+an edge Worker read from it at ~133 ms per round trip while a Worker placed next to the primary read
+locally at ~15 ms. A head-to-head on the real app (LHR placement vs ENAM placement, phone
+emulation) came out within run-to-run noise for Peru, because batching leaves only one D1 round
+trip per request, so the client leg and render dominate. Ireland clearly prefers LHR (~30 ms vs
+~100–165 ms), so the Worker stays next to the primary in WEUR. `request.cf.colo` still reports the
+receiving edge (GIG), so placement has to be verified by measuring a D1 round trip, not `cf.colo`.
 
 ## Code changes that came with the move
 
@@ -115,7 +117,7 @@ What changed:
   re-fetches the page: the action returns the resulting status and the page reflects it
   (`invalidateAll: false`), which also removes the re-render that followed every edit.
 What did **not** change in that round: the page batch still read from the LHR primary (~250 ms from
-GIG) because no read replica was serving American traffic at the time of measurement.
+GIG) because the ENAM read replica had not finished provisioning yet.
 
 ## Placement experiment (2026-09-20, later)
 
@@ -135,11 +137,13 @@ Playwright phone emulation (Pixel 7, 4× CPU, 150 ms latency) on the workouts fl
 | tap first (preloaded) workout → rendered | 533–565 ms | **340 ms** (one 712 ms outlier) |
 | tap another workout → rendered | 554–631 ms | **463–602 ms** |
 
-Placement also makes writes local, and keeps Ireland fast (Dublin→London is ~15 ms). The trade-off
-is the request-forwarding leg for every request; that leg only pays off while each request still
-needs a D1 round trip. Re-evaluate if a read replica starts serving the Americas: an edge Worker
-reading from a US replica could then be comparable for reads, though writes would still favour
-placement. Verify with the same D1 round-trip probe rather than `cf.colo`.
+Placement also makes writes local, and keeps Ireland fast (Dublin→London is ~15 ms). A later probe
+found the ENAM read replica had started serving (ATL, `served_by_primary: false`, ~133 ms from the
+edge Worker in GIG; a Worker placed in ENAM reads it in ~27–33 ms). A head-to-head with ENAM
+placement (`aws:us-east-1`) on the real app was within noise for Peru — list load, taps and saves
+all varied by more than the difference — so the Worker stays next to the primary for Ireland’s
+benefit. Re-evaluate only if replica routing or the traffic mix changes; verify with the D1
+round-trip probe rather than `cf.colo`.
 
 ## Measurements
 
