@@ -10,6 +10,8 @@ import {
 	bind,
 	chunk,
 	first,
+	IN_CLAUSE_CHUNK,
+	placeholders,
 	type Db
 } from '$lib/server/db';
 import {
@@ -353,12 +355,6 @@ export async function softDeleteCascade(
  * Every mapping below loads all rows in a handful of set-based queries instead of two per
  * association — D1 queries are network round trips, so per-row loops show up as navigation lag.
  */
-const IN_CLAUSE_CHUNK = 90;
-
-/** `?, ?, ?` placeholder list for an `IN (...)` clause. */
-function placeholders(count: number): string {
-	return new Array(count).fill('?').join(', ');
-}
 
 /** Loads exercises by id with one query per chunk of ids instead of one query per exercise. */
 async function loadExercisesByIds(db: Db, exerciseIds: number[]): Promise<Map<number, Exercise>> {

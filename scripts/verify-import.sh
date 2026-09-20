@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Compare per-table row counts between a PHP gym SQLite database and the
-# Cloudflare D1 database "gym-tracker". Exits non-zero on any mismatch.
+# Cloudflare D1 database "gym-tracker-weur". Exits non-zero on any mismatch.
 #
 set -euo pipefail
 
@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-DB_NAME="gym-tracker"
+DB_NAME="gym-tracker-weur"
 
 # `sessions` is new in the Worker and `d1_migrations` is wrangler bookkeeping,
 # so neither is compared.

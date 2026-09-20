@@ -3,6 +3,9 @@
 
 export type Row = Record<string, unknown>;
 
+/** Client-side state of an `use:enhance` form submission. */
+export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
 export interface User {
 	readonly id: number;
 	readonly name: string;

@@ -9,9 +9,11 @@ import {
 	getTrainingBlock,
 	updateBlockWeek
 } from '$lib/server/services/blocks';
-import { getExercise } from '$lib/server/services/catalog';
 import { formatDate } from '$lib/server/services/common';
-import { getWorkoutExercisesForWorkout, getWorkoutsByBlockWeekId } from '$lib/server/services/workouts';
+import {
+	getWorkoutExerciseNames,
+	getWorkoutsByBlockWeekId
+} from '$lib/server/services/workouts';
 import type { Actions, PageServerLoad } from './$types';
 
 /** Resolves both route params and verifies the week belongs to the owned block. */
@@ -41,23 +43,20 @@ export const load: PageServerLoad = async ({ locals, url, params }) => {
 	const { user, block, week, weekId } = await ownedWeek(locals, url, params);
 
 	const workouts = await getWorkoutsByBlockWeekId(locals.db, weekId, user.id);
-	const workoutsData = await Promise.all(
-		workouts.map(async (workout) => {
-			const associations = await getWorkoutExercisesForWorkout(locals.db, workout.id, user.id);
-			const exercises: string[] = [];
-			for (const association of associations) {
-				const exercise = await getExercise(locals.db, association.exerciseId, user.id);
-				if (exercise) {
-					exercises.push(exercise.name);
-				}
-			}
-			return {
-				workout,
-				dateLabel: formatDate(workout.performedOn ?? workout.plannedOn),
-				exercises
-			};
-		})
+
+	// One set-based query for every workout's exercise names instead of a `getExercise` lookup per
+	// association. D1 calls are network round trips, so the week list stays at two queries total.
+	const namesByWorkout = await getWorkoutExerciseNames(
+		locals.db,
+		workouts.map((workout) => workout.id),
+		user.id
 	);
+
+	const workoutsData = workouts.map((workout) => ({
+		workout,
+		dateLabel: formatDate(workout.performedOn ?? workout.plannedOn),
+		exercises: namesByWorkout.get(workout.id) ?? []
+	}));
 
 	return {
 		block,

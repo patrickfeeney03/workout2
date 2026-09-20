@@ -1,10 +1,11 @@
 import type { Row } from '$lib/types';
 
 /**
- * Thin helpers around the D1 API. Services accept a `Db` (D1Database) explicitly
- * so tests can inject an isolated database.
+ * Thin helpers around the D1 API. Services accept a `Db` explicitly so tests can inject an isolated
+ * database. `Db` is a plain D1Database or a D1DatabaseSession (see `$lib/server/d1`); both expose
+ * `prepare()` and `batch()`, and a session adds sequential consistency on top of read replicas.
  */
-export type Db = D1Database;
+export type Db = D1Database | D1DatabaseSession;
 export type Stmt = D1PreparedStatement;
 
 export function bind(db: Db, sql: string, values: unknown[] = []): D1PreparedStatement {
@@ -66,6 +67,17 @@ export function chunk<T>(items: T[], size: number): T[][] {
 		out.push(items.slice(i, i + size));
 	}
 	return out;
+}
+
+/**
+ * D1 caps bound parameters per statement (100), so `IN (...)` lists stay below that. Every
+ * set-based lookup chunks on this value.
+ */
+export const IN_CLAUSE_CHUNK = 90;
+
+/** `?, ?, ?` placeholder list for an `IN (...)` clause. */
+export function placeholders(count: number): string {
+	return new Array(count).fill('?').join(', ');
 }
 
 /** ISO timestamp in the shape SQLite CURRENT_TIMESTAMP uses (UTC, seconds). */

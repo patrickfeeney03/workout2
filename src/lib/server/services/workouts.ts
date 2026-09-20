@@ -2,10 +2,11 @@
  * Ported from src/Service/WorkoutService.php.
  * Exports: CreateWorkoutInput, getWorkout, getWorkouts, getWorkoutsByBlockWeekId, handleWorkout,
  * addExerciseToWorkout, deleteWorkout, duplicateWorkout, getWorkoutExercise,
- * getWorkoutExercisesForWorkout, getWorkoutExercisesAndSetsArray, getWorkoutSetsForWorkoutExercise,
- * getWorkoutSet, handleUpdateWorkoutSetsDTO, deleteWorkoutExercise, deleteWorkoutSet, moveWorkoutSet,
- * normalizeWorkoutSetNumbers, createEmptyWorkoutSet, getPastWorkoutSetsForExercise,
- * updateWorkoutTitle, updateWorkoutPlannedOn, updateWorkoutWeek.
+ * getWorkoutExercisesForWorkout, getWorkoutExerciseNames, getWorkoutExercisesAndSetsArray,
+ * getWorkoutSetsForWorkoutExercise, getWorkoutSet, handleUpdateWorkoutSetsDTO,
+ * WorkoutSetUpdate, WorkoutExerciseUpdate, saveWorkoutExercise, deleteWorkoutExercise,
+ * deleteWorkoutSet, moveWorkoutSet, normalizeWorkoutSetNumbers, createEmptyWorkoutSet,
+ * getPastWorkoutSetsForExercise, updateWorkoutTitle, updateWorkoutPlannedOn, updateWorkoutWeek.
  *
  * D1 strategy (atomicity): Cloudflare D1 has no interactive transactions, so both `handleWorkout`
  * and `duplicateWorkout` run as a single `db.batch([...])` (atomic, sequential). The first statement
@@ -17,7 +18,7 @@
  * it can only fan out if a parent has duplicate (exercise_id, sort_order) pairs.
  */
 
-import { allRows, bind, first, insertId, run, type Db } from '$lib/server/db';
+import { allRows, bind, chunk, first, IN_CLAUSE_CHUNK, insertId, placeholders, run, type Db } from '$lib/server/db';
 import {
 	workoutExerciseFromRow,
 	workoutFromRow,
@@ -343,6 +344,47 @@ export async function getWorkoutExercisesForWorkout(
 }
 
 /**
+ * Exercise names per workout, in `sort_order`. One (chunked) query for a whole week's list
+ * instead of `getExercise` per workout exercise.
+ */
+export async function getWorkoutExerciseNames(
+	db: Db,
+	workoutIds: number[],
+	userId: number
+): Promise<Map<number, string[]>> {
+	const names = new Map<number, string[]>();
+	const uniqueIds = [...new Set(workoutIds)];
+
+	for (const ids of chunk(uniqueIds, IN_CLAUSE_CHUNK)) {
+		const rows = await allRows<{ workout_id: number; name: string }>(
+			bind(
+				db,
+				`SELECT we.workout_id, e.name
+				FROM workout_exercises we
+				INNER JOIN workouts w ON w.id = we.workout_id
+				INNER JOIN exercises e ON e.id = we.exercise_id
+				WHERE we.is_deleted = 0 AND w.user_id = ? AND e.user_id = ?
+					AND we.workout_id IN (${placeholders(ids.length)})
+				ORDER BY we.workout_id ASC, we.sort_order ASC`,
+				[userId, userId, ...ids]
+			)
+		);
+
+		for (const row of rows) {
+			const workoutId = Number(row.workout_id);
+			const list = names.get(workoutId);
+			if (list) {
+				list.push(String(row.name));
+			} else {
+				names.set(workoutId, [String(row.name)]);
+			}
+		}
+	}
+
+	return names;
+}
+
+/**
  * Maps each workout exercise to its exercise row and active sets (ordered by set_number),
  * keyed by workout_exercise id. Mirrors CommonService::getMappedExercisesAndSets; the shared
  * implementation batches the two lookups per association into set-based queries.
@@ -412,6 +454,119 @@ export async function handleUpdateWorkoutSetsDTO(db: Db, workoutSet: WorkoutSet)
 			[repsVal, weightVal, setType, notesVal, workoutSet.id]
 		)
 	);
+}
+
+/** One posted set, already parsed from `sets[<id>][...]` form fields. */
+export interface WorkoutSetUpdate {
+	id: number;
+	actualReps: number | null;
+	actualWeight: number | null;
+	setType: string;
+	notes: string | null;
+}
+
+/** Exercise-level fields that were present on the form (`form.has(...)` decided this). */
+export interface WorkoutExerciseUpdate {
+	targetRest?: string | null;
+	notes?: string | null;
+}
+
+/**
+ * Saves every posted set of one workout exercise, plus its rest and notes, as a single atomic
+ * `db.batch`, then completes the workout when every active set has both actual reps and weight.
+ * The completion statement runs last in the same batch, so it sees the just-updated values.
+ *
+ * Set updates are scoped to `workout_exercise_id` (and `is_deleted = 0`), so a posted id from
+ * another exercise or user is ignored — the same result as the old per-set ownership lookup, but
+ * without one read per set. Returns false when the workout exercise is not owned by the user.
+ */
+export async function saveWorkoutExercise(
+	db: Db,
+	userId: number,
+	workoutExerciseId: number,
+	updates: WorkoutSetUpdate[],
+	fields: WorkoutExerciseUpdate = {}
+): Promise<boolean> {
+	const owned = await first<{ workout_id: number }>(
+		bind(
+			db,
+			`SELECT we.workout_id
+			FROM workout_exercises we
+			INNER JOIN workouts w ON w.id = we.workout_id
+			WHERE we.id = ? AND w.user_id = ?`,
+			[workoutExerciseId, userId]
+		)
+	);
+	if (!owned) {
+		return false;
+	}
+	const workoutId = Number(owned.workout_id);
+
+	const statements: D1PreparedStatement[] = [];
+
+	if (fields.targetRest !== undefined) {
+		statements.push(
+			bind(db, 'UPDATE workout_exercises SET target_rest = ? WHERE id = ?', [
+				fields.targetRest,
+				workoutExerciseId
+			])
+		);
+	}
+	if (fields.notes !== undefined) {
+		statements.push(
+			bind(db, 'UPDATE workout_exercises SET notes = ? WHERE id = ?', [
+				fields.notes,
+				workoutExerciseId
+			])
+		);
+	}
+
+	for (const update of updates) {
+		statements.push(
+			bind(
+				db,
+				`UPDATE workout_sets
+				SET actual_reps = ?, actual_weight = ?, set_type = ?, notes = ?
+				WHERE id = ? AND workout_exercise_id = ? AND is_deleted = 0`,
+				[
+					update.actualReps,
+					update.actualWeight,
+					update.setType,
+					update.notes,
+					update.id,
+					workoutExerciseId
+				]
+			)
+		);
+	}
+
+	// Mirrors the old autoCompleteWorkout loop: at least one active set, and no active set missing
+	// either actual value. Soft-deleted exercises and sets are excluded, as before.
+	statements.push(
+		bind(
+			db,
+			`UPDATE workouts
+			SET status = 'completed'
+			WHERE id = ? AND user_id = ? AND status != 'completed'
+				AND EXISTS (
+					SELECT 1
+					FROM workout_sets ws
+					INNER JOIN workout_exercises we ON we.id = ws.workout_exercise_id
+					WHERE we.workout_id = ? AND we.is_deleted = 0 AND ws.is_deleted = 0
+				)
+				AND NOT EXISTS (
+					SELECT 1
+					FROM workout_sets ws
+					INNER JOIN workout_exercises we ON we.id = ws.workout_exercise_id
+					WHERE we.workout_id = ? AND we.is_deleted = 0 AND ws.is_deleted = 0
+						AND (ws.actual_reps IS NULL OR ws.actual_weight IS NULL)
+				)`,
+			[workoutId, userId, workoutId, workoutId]
+		)
+	);
+
+	await db.batch(statements);
+	return true;
 }
 
 export async function deleteWorkoutExercise(

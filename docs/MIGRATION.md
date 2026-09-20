@@ -1,7 +1,9 @@
 # Migration runbook: PHP gym → SvelteKit/Cloudflare
 
 The old PHP app is the **source of truth** until the final sync. The Worker is
-`gym-tracker`; its D1 id and R2 bucket (`gym-media`) live in `wrangler.jsonc`.
+`gym-tracker`; its D1 id and R2 bucket (`gym-media`) live in `wrangler.jsonc`. The
+D1 database name is `gym-tracker-weur` (WEUR primary with read replication, see
+[docs/REGIONAL-PERFORMANCE.md](REGIONAL-PERFORMANCE.md)).
 
 ## 0. Prerequisites
 

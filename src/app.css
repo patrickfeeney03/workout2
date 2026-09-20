@@ -442,6 +442,29 @@ th {
 	color: var(--danger);
 }
 
+/* ------------------------------------------------------- form save state */
+
+.save-state {
+	display: inline-flex;
+	align-items: center;
+	min-height: 1.5rem;
+	font-size: 0.75rem;
+	white-space: nowrap;
+	color: var(--text-faint);
+}
+
+.save-state[data-state='saving'] {
+	color: var(--text-muted);
+}
+
+.save-state[data-state='saved'] {
+	color: var(--accent-strong);
+}
+
+.save-state[data-state='error'] {
+	color: var(--danger);
+}
+
 /* ------------------------------------------------------------------ images */
 
 img {

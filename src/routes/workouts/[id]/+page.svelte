@@ -2,9 +2,11 @@
 	import { applyAction, enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import HoldToDelete from '$lib/components/HoldToDelete.svelte';
-	import type { ActionData, PageData } from './$types';
+	import SaveState from '$lib/components/SaveState.svelte';
+	import type { SaveState as SaveStateValue } from '$lib/types';
+	import type { PageData } from './$types';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { data }: { data: PageData } = $props();
 
 	const workout = $derived(data.workout);
 	const allSets = $derived(data.exercises.flatMap((item) => item.sets));
@@ -34,31 +36,78 @@
 		element?.requestSubmit();
 	}
 
-	/**
-	 * `use:enhance` default resets the form after every success, which would wipe the value the user
-	 * just typed into an auto-saved field. Update without resetting instead, and fall back to
-	 * `applyAction` for failures/redirects/errors.
-	 */
-	const keepValues: SubmitFunction = () => async ({ result, update }) => {
-		if (result.type === 'success') {
-			await update({ reset: false });
-		} else {
-			await applyAction(result);
+	// -------------------------------------------------------------------------
+	// Per-form save state.
+	//
+	// Every form saves independently and shows its own saving/saved/error state. Saves are
+	// serialized per form: while one request is in flight another change is remembered and
+	// resubmitted as soon as the first response lands. The resubmission starts *before* `update()`
+	// re-renders the server data, so it captures the newest values the user typed — a slow earlier
+	// response can never overwrite a newer edit.
+	// -------------------------------------------------------------------------
+
+	const saveStates = $state<Record<string, SaveStateValue>>({});
+	const inFlight = new Map<string, boolean>();
+	const queued = new Map<string, { form: HTMLFormElement; submitter: HTMLElement | null }>();
+	const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+	function setSaveState(name: string, state: SaveStateValue) {
+		const timer = idleTimers.get(name);
+		if (timer) clearTimeout(timer);
+		saveStates[name] = state;
+		if (state === 'saved') {
+			idleTimers.set(
+				name,
+				setTimeout(() => {
+					if (saveStates[name] === 'saved') saveStates[name] = 'idle';
+				}, 2500)
+			);
 		}
-	};
+	}
 
 	/**
-	 * Auto-save for fields that are only displayed by the input itself. Skips `invalidateAll`, so a
-	 * change posts one small request instead of re-running the whole D1-backed page load. The server
-	 * stores exactly the posted value, so `data` would not change for these actions anyway.
+	 * `use:enhance` handler for one form. `invalidateAll: false` keeps single-field auto-saves from
+	 * re-running the whole D1-backed page load (the server stores exactly what was posted, so the
+	 * page data would not change anyway). The default keeps the form values instead of resetting
+	 * them, so a failed save never loses what the user typed.
 	 */
-	const saveInPlace: SubmitFunction = () => async ({ result, update }) => {
-		if (result.type === 'success') {
-			await update({ reset: false, invalidateAll: false });
-		} else {
-			await applyAction(result);
-		}
-	};
+	function enhanceForm(name: string, options: { invalidateAll?: boolean } = {}): SubmitFunction {
+		return ({ formElement, submitter, cancel }) => {
+			if (inFlight.get(name)) {
+				queued.set(name, { form: formElement, submitter });
+				cancel();
+				return;
+			}
+
+			inFlight.set(name, true);
+			setSaveState(name, 'saving');
+
+			return async ({ result, update }) => {
+				inFlight.delete(name);
+
+				if (result.type === 'success') {
+					const next = queued.get(name);
+					queued.delete(name);
+					if (next) {
+						try {
+							// Captures the newest values before `update()` can re-render them over.
+							next.form.requestSubmit(next.submitter ?? undefined);
+						} catch {
+							// The queued button is no longer in the form; the typed values are still there,
+							// so a manual save or the next change submits them.
+						}
+					}
+					await update({ reset: false, invalidateAll: options.invalidateAll ?? true });
+					if (!next) setSaveState(name, 'saved');
+					return;
+				}
+
+				queued.delete(name);
+				if (result.type !== 'redirect') setSaveState(name, 'error');
+				await applyAction(result);
+			};
+		};
+	}
 
 	function confirmSubmit(message: string) {
 		return (event: Event) => {
@@ -78,16 +127,12 @@
 		<span class="truncate">{workout.title ?? 'Workout'}</span>
 	</div>
 
-	{#if form?.saved}
-		<p class="alert small">Saved</p>
-	{/if}
-
 	<section class="card">
 		<div class="head-grid">
 			<form
 				method="POST"
 				action="?/update_title"
-				use:enhance={keepValues}
+				use:enhance={enhanceForm('title')}
 				onchange={autoSave}
 				class="field span-2"
 			>
@@ -95,10 +140,11 @@
 				<div class="row tight">
 					<input id="title" name="title" value={workout.title ?? ''} autocomplete="off" class="grow" />
 					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+					<SaveState state={saveStates.title ?? 'idle'} />
 				</div>
 			</form>
 
-			<form method="POST" action="?/update_planned_on" use:enhance={saveInPlace} onchange={autoSave} class="field">
+			<form method="POST" action="?/update_planned_on" use:enhance={enhanceForm('planned_on', { invalidateAll: false })} onchange={autoSave} class="field">
 				<label for="planned_on">Planned date</label>
 				<div class="row tight">
 					<input
@@ -110,10 +156,11 @@
 						onclick={(event) => (event.currentTarget as HTMLInputElement).showPicker?.()}
 					/>
 					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+					<SaveState state={saveStates.planned_on ?? 'idle'} />
 				</div>
 			</form>
 
-			<form method="POST" action="?/update_status" use:enhance={saveInPlace} onchange={autoSave} class="field">
+			<form method="POST" action="?/update_status" use:enhance={enhanceForm('status', { invalidateAll: false })} onchange={autoSave} class="field">
 				<label for="status">Status</label>
 				<div class="row tight">
 					<select id="status" name="status" class="grow" value={workout.status ?? 'planned'}>
@@ -122,10 +169,11 @@
 						<option value="skipped">Skipped</option>
 					</select>
 					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+					<SaveState state={saveStates.status ?? 'idle'} />
 				</div>
 			</form>
 
-			<form method="POST" action="?/update_duration" use:enhance={saveInPlace} onchange={autoSave} class="field">
+			<form method="POST" action="?/update_duration" use:enhance={enhanceForm('duration', { invalidateAll: false })} onchange={autoSave} class="field">
 				<label for="duration_hours">Duration</label>
 				<div class="row tight">
 					<input
@@ -161,10 +209,11 @@
 					/>
 					<span class="faint small">s</span>
 					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+					<SaveState state={saveStates.duration ?? 'idle'} />
 				</div>
 			</form>
 
-			<form method="POST" action="?/update_body_weight" use:enhance={saveInPlace} onchange={autoSave} class="field">
+			<form method="POST" action="?/update_body_weight" use:enhance={enhanceForm('body_weight', { invalidateAll: false })} onchange={autoSave} class="field">
 				<label for="body_weight">Body weight</label>
 				<div class="row tight">
 					<input
@@ -177,10 +226,11 @@
 					/>
 					<span class="faint small">kg</span>
 					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
+					<SaveState state={saveStates.body_weight ?? 'idle'} />
 				</div>
 			</form>
 
-			<form method="POST" action="?/update_week" use:enhance={keepValues} onchange={autoSave} class="field span-2">
+			<form method="POST" action="?/update_week" use:enhance={enhanceForm('week')} onchange={autoSave} class="field span-2">
 				<label for="block_week_id">Week</label>
 				<div class="row tight">
 					<select
@@ -202,6 +252,7 @@
 					{#if workout.blockWeekId && data.week?.trainingBlockId}
 						<a class="small" href={`/blocks/${data.week.trainingBlockId}/weeks/${workout.blockWeekId}`}>View</a>
 					{/if}
+					<SaveState state={saveStates.week ?? 'idle'} />
 				</div>
 			</form>
 
@@ -262,7 +313,7 @@
 			<form
 				method="POST"
 				action="?/update_workout_sets"
-				use:enhance={keepValues}
+				use:enhance={enhanceForm(`exercise-${wex.id}`)}
 				onchange={autoSave}
 				class="card exercise"
 			>
@@ -428,6 +479,7 @@
 					</button>
 					<button type="submit" formaction="?/add_blank_set" class="btn btn-sm">+ Add set</button>
 					<button type="submit" class="btn btn-sm btn-primary">Save sets</button>
+					<SaveState state={saveStates[`exercise-${wex.id}`] ?? 'idle'} />
 				</div>
 			</form>
 		{/each}

@@ -4,7 +4,10 @@ The gym tracker, ported from the vanilla PHP app (still in its own repository). 
 Ideas app stays on PHP; everything on the `gym/` pages of the old app lives here.
 
 - **SvelteKit 2 + Svelte 5 (runes)**, SSR on Cloudflare Workers
-- **D1** (serverless SQLite) for data, schema in `migrations/`
+- **D1** (serverless SQLite) for data, schema in `migrations/` — the primary is in **WEUR**
+  (`gym-tracker-weur`) with read replication enabled; requests use the D1 Sessions API plus a
+  bookmark cookie so travelling browsers can read from a replica without losing read-your-writes
+  (see [docs/REGIONAL-PERFORMANCE.md](docs/REGIONAL-PERFORMANCE.md))
 - **R2** for exercise images and set media, served through `/media/[type]/[id]`
 - **Vitest + `@cloudflare/vitest-pool-workers`**: tests run in real workerd with D1
 - Legacy PHP bcrypt hashes still verify at login and are transparently rehashed to
@@ -119,18 +122,27 @@ URI, then redirect the PHP `/gym/*` pages to the new host.
 
 ## Database
 
+- The deployed database is `gym-tracker-weur` (WEUR primary, read replication `auto`). The
+  `DB` binding and the replacement procedure are in
+  [docs/REGIONAL-PERFORMANCE.md](docs/REGIONAL-PERFORMANCE.md); the previous ENAM database is kept
+  for rollback.
 - `migrations/0001_init.sql` — 11 domain tables + `sessions`, triggers, indexes.
   The three AI-insight tables (`note_analyses`, `insight_briefs`, `insight_jobs`)
   are intentionally **not** migrated; the insights feature was dropped.
 - `migrations/0002_seed_stub_user.sql` — idempotent stub user 1.
 
-D1 differs from the PHP PDO code in two ways that the services handle:
+D1 differs from the PHP PDO code in three ways that the services handle:
 
 1. **No interactive transactions.** Multi-statement writes use `db.batch()`
    (atomic). Workout creation/cloning builds one batch with explicit id
-   generation.
+   generation; `saveWorkoutExercise` batches every posted set, the exercise
+   rest/notes, and the completion check into one batch.
 2. **Foreign keys are always enforced.** Services store `NULL` instead of `0`/`''`
    for absent FKs.
+3. **Replicated reads can lag.** `src/hooks.server.ts` runs every request through a D1 session and
+   stores the session bookmark in the `gym_d1_bookmark_v1` cookie. A write advances the bookmark on
+   the primary; the next page load may use any replica that is at least that fresh. A session is
+   `first-unconstrained`, so reads with no bookmark prefer the nearest replica.
 
 ## Tests
 

@@ -16,13 +16,13 @@ import {
 	getWorkoutExercise,
 	getWorkoutExercisesAndSetsArray,
 	getWorkoutExercisesForWorkout,
-	getWorkoutSet,
-	getWorkoutSetsForWorkoutExercise,
-	handleUpdateWorkoutSetsDTO,
 	moveWorkoutSet,
+	saveWorkoutExercise,
 	updateWorkoutPlannedOn,
 	updateWorkoutTitle,
-	updateWorkoutWeek
+	updateWorkoutWeek,
+	type WorkoutExerciseUpdate,
+	type WorkoutSetUpdate
 } from '$lib/server/services/workouts';
 import { moveExercise } from '$lib/server/services/common';
 import type { Actions, PageServerLoad } from './$types';
@@ -80,38 +80,6 @@ function requireWorkoutId(params: { id: string }): number {
 	return workoutId;
 }
 
-/**
- * PHP marks the workout completed from within update_workout_sets when every active set has both
- * actual_reps and actual_weight. Kept here because there is no equivalent service function.
- */
-async function autoCompleteWorkout(db: D1Database, workoutId: number, userId: number): Promise<void> {
-	const workoutExercises = await getWorkoutExercisesForWorkout(db, workoutId, userId);
-	let hasSets = false;
-	let allFilled = true;
-
-	for (const wex of workoutExercises) {
-		const sets = await getWorkoutSetsForWorkoutExercise(db, wex.id, userId);
-		for (const set of sets) {
-			hasSets = true;
-			if (set.actualReps === null || set.actualWeight === null) {
-				allFilled = false;
-				break;
-			}
-		}
-		if (!allFilled) break;
-	}
-
-	if (hasSets && allFilled) {
-		await run(
-			bind(
-				db,
-				"UPDATE workouts SET status = 'completed' WHERE id = ? AND user_id = ? AND status != 'completed'",
-				[workoutId, userId]
-			)
-		);
-	}
-}
-
 export const load: PageServerLoad = async ({ locals, url, params }) => {
 	const user = requireUser(locals, url);
 	const workoutId = requireWorkoutId(params);
@@ -161,7 +129,7 @@ export const actions: Actions = {
 	/** PHP default form action: save every set of one exercise, its rest and notes. */
 	update_workout_sets: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		const workoutExerciseId = int(form, 'workout_exercise_id');
@@ -169,43 +137,30 @@ export const actions: Actions = {
 			return { saved: false };
 		}
 
-		const workoutExercise = await getWorkoutExercise(locals.db, workoutExerciseId, user.id);
-		if (!workoutExercise) {
-			error(404, 'Not found');
-		}
-
-		if (form.has('target_rest')) {
-			await run(
-				bind(locals.db, 'UPDATE workout_exercises SET target_rest = ? WHERE id = ?', [
-					optStr(form, 'target_rest'),
-					workoutExerciseId
-				])
-			);
-		}
-
-		if (form.has('workout_exercise_notes')) {
-			await run(
-				bind(locals.db, 'UPDATE workout_exercises SET notes = ? WHERE id = ?', [
-					optStr(form, 'workout_exercise_notes'),
-					workoutExerciseId
-				])
-			);
-		}
-
-		for (const [setId, fields] of parseSetFields(form)) {
-			const existing = await getWorkoutSet(locals.db, setId, user.id);
-			if (!existing) continue;
-			const setType = fields.set_type.trim();
-			await handleUpdateWorkoutSetsDTO(locals.db, {
-				...existing,
-				actualReps: optNum(fields.actual_reps),
-				actualWeight: optNum(fields.actual_weight),
+		const updates: WorkoutSetUpdate[] = [];
+		for (const [setId, parsed] of parseSetFields(form)) {
+			const setType = parsed.set_type.trim();
+			updates.push({
+				id: setId,
+				actualReps: optNum(parsed.actual_reps),
+				actualWeight: optNum(parsed.actual_weight),
 				setType: setType === '' ? 'working' : setType,
-				notes: fields.notes.trim() === '' ? null : fields.notes.trim()
+				notes: parsed.notes.trim() === '' ? null : parsed.notes.trim()
 			});
 		}
 
-		await autoCompleteWorkout(locals.db, workoutId, user.id);
+		const fields: WorkoutExerciseUpdate = {};
+		if (form.has('target_rest')) {
+			fields.targetRest = optStr(form, 'target_rest');
+		}
+		if (form.has('workout_exercise_notes')) {
+			fields.notes = optStr(form, 'workout_exercise_notes');
+		}
+
+		if (!(await saveWorkoutExercise(locals.db, user.id, workoutExerciseId, updates, fields))) {
+			error(404, 'Not found');
+		}
+
 		return { saved: true };
 	},
 

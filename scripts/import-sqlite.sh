@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Import a PHP gym SQLite database into the Cloudflare D1 database "gym-tracker".
+# Import a PHP gym SQLite database into the Cloudflare D1 database "gym-tracker-weur".
 #
 # The D1 schema must already exist (run `npx wrangler d1 migrations apply
-# gym-tracker --remote` first). Primary keys are preserved as-is; foreign keys
+# gym-tracker-weur --remote` first). Primary keys are preserved as-is; foreign keys
 # are never remapped, so the dump must come from the matching PHP schema.
 #
 set -euo pipefail
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-DB_NAME="gym-tracker"
+DB_NAME="gym-tracker-weur"
 TMP_DIR="$PROJECT_DIR/tmp"
 DUMP_FILE="$TMP_DIR/dump.sql"
 CLEAN_BODY="$TMP_DIR/dump.clean.body.sql"
