@@ -80,16 +80,28 @@ latency.
 
 D1 metadata: the old primary reported `served_by_region: ENAM`, `served_by_colo: IAD`,
 `served_by_primary: true`. The new database reports `running_in_region: WEUR`,
-`read_replication.mode: auto`. The app's own queries do not log `served_by_region`; adding that
-would require a temporary logging change.
+`read_replication.mode: auto`.
+
+A temporary probe route (a `SELECT 1` through `first-unconstrained` and `first-primary`, returning
+`served_by_region`/`served_by_colo`/`served_by_primary` and the Worker's `cf.colo`) was deployed
+right after the cutover and then removed. It showed that **reads were still served by the WEUR
+primary in LHR (`served_by_primary: true`), not by a replica**, minutes after replication was
+enabled. The Worker ran in `GIG` (Rio de Janeiro) for this Lima connection — note that `cf.city:
+Lima` is the *client's* city, not the data center's. There is no D1 South America region, so if and
+when replicas are assigned for the Americas they will most likely be ENAM/WNAM, meaning Peru reads
+from the US rather than locally. Re-check this later (re-add the probe route, or log
+`result.meta.served_by_region` in `src/hooks.server.ts` temporarily): as long as
+`served_by_primary` is true for Peru, its reads are paying the full trip to London, and the
+latency table below is a primary-only baseline. D1-reported query durations are ~1 ms
+(`wrangler d1 insights`), so the ~1 s page loads are network round trips, not database work.
 
 **Not measured (must be established by the user):**
 
 - Anything from Ireland — this machine is in Peru; no Ireland measurement exists yet.
 - Real browser timings (DOM ready, save interaction latency) rather than curl TTFB.
 - Set-save round trips from either location; server-side write behavior was verified, not timed.
-- Replica placement/warm-up for the new database: replication was enabled immediately before the
-  measurements, so the first authenticated reads may still have gone to the WEUR primary.
+- Whether (and where) read replicas are serving: at the time of measurement they were not — Peru
+  reads still went to the WEUR primary, see above.
 
 ## Repeating the measurement
 
