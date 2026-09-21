@@ -50,9 +50,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		routines: allRoutines.filter((routine) => routine.name !== 'No Routine'),
 		trainingBlocks: trainingBlocks.filter((block) => block.name !== 'No Block'),
 		weeksByBlock,
-		weekRanges: Object.fromEntries(
-			weeks.map((week) => [week.id, `${formatDate(week.startsOn)} to ${formatDate(week.endsOn)}`])
-		) as Record<number, string>,
 		today: new Date().toISOString().slice(0, 10)
 	};
 };

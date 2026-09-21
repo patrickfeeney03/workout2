@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { preloadData } from '$app/navigation';
+	import WeekPicker from '$lib/components/WeekPicker.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -41,20 +42,17 @@
 			<div class="grid">
 				<div class="field">
 					<label for="block_week_id">Week</label>
-					<select id="block_week_id" name="block_week_id" required>
-						<option value="" selected disabled>-- Choose a week --</option>
-						<option value="0">No Week</option>
-						{#each data.trainingBlocks as block (block.id)}
-							<optgroup label={block.name}>
-								{#each data.weeksByBlock[block.id] ?? [] as week (week.id)}
-									<option value={week.id}>
-										Week {week.weekNumber} - {week.weekType ?? ''}
-										({data.weekRanges[week.id]})
-									</option>
-								{/each}
-							</optgroup>
-						{/each}
-					</select>
+					<WeekPicker
+						id="block_week_id"
+						label="Week"
+						name="block_week_id"
+						placeholder="-- Choose a week --"
+						noneLabel="No Week"
+						noneValue={0}
+						required
+						blocks={data.trainingBlocks}
+						weeksByBlock={data.weeksByBlock}
+					/>
 				</div>
 				<div class="field">
 					<label for="routine_id">Routine</label>

@@ -3,6 +3,7 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import HoldToDelete from '$lib/components/HoldToDelete.svelte';
 	import SaveState from '$lib/components/SaveState.svelte';
+	import WeekPicker from '$lib/components/WeekPicker.svelte';
 	import type { SaveState as SaveStateValue } from '$lib/types';
 	import type { PageData } from './$types';
 
@@ -240,21 +241,17 @@
 			<form method="POST" action="?/update_week" use:enhance={enhanceForm('week')} onchange={autoSave} class="field span-2">
 				<label for="block_week_id">Week</label>
 				<div class="row tight">
-					<select
-						id="block_week_id"
-						name="block_week_id"
-						class="grow"
-						value={workout.blockWeekId === null ? '' : String(workout.blockWeekId)}
-					>
-						<option value="">-- None --</option>
-						{#each data.trainingBlocks as block (block.id)}
-							<optgroup label={block.name}>
-								{#each data.weeksByBlock[block.id] ?? [] as week (week.id)}
-									<option value={week.id}>Week {week.weekNumber} - {week.weekType ?? ''}</option>
-								{/each}
-							</optgroup>
-						{/each}
-					</select>
+					<div class="grow">
+						<WeekPicker
+							id="block_week_id"
+							label="Week"
+							name="block_week_id"
+							blocks={data.trainingBlocks}
+							weeksByBlock={data.weeksByBlock}
+							value={workout.blockWeekId}
+							noneLabel="-- None --"
+						/>
+					</div>
 					<button class="btn btn-sm btn-ghost" type="submit">Save</button>
 					{#if workout.blockWeekId && data.week?.trainingBlockId}
 						<a class="small" href={`/blocks/${data.week.trainingBlockId}/weeks/${workout.blockWeekId}`}>View</a>
