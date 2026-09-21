@@ -538,6 +538,12 @@
 		gap: 0.6rem;
 	}
 
+	/* Grid items default to min-width:auto, which lets long inputs / week labels
+	   force the column (and the page) wider than the viewport on phones. */
+	.head-grid > * {
+		min-width: 0;
+	}
+
 	.span-2 {
 		grid-column: 1 / -1;
 	}
@@ -665,21 +671,58 @@
 
 	.set-main {
 		align-items: center;
-		gap: 0.35rem;
+		flex-wrap: wrap;
+		gap: 0.2rem;
 	}
 
 	.set-num {
-		min-width: 1.75rem;
+		min-width: 1rem;
 		color: var(--text-muted);
-		font-size: 0.85rem;
+		font-size: 0.8rem;
+	}
+
+	.set-main .field-inline {
+		gap: 0.25rem;
+	}
+
+	/* Mobile-first: keep reps / weight compact so the set type stays on the same row. */
+	.set-main .small-input,
+	.set-main .medium-input {
+		width: 5ch;
+		min-width: 3.5ch;
 	}
 
 	.type-select {
 		width: auto;
-		min-width: 6.5rem;
+		min-width: 4.5rem;
 		min-height: 2.5rem;
-		padding: 0.25rem 0.4rem;
-		font-size: 0.85rem;
+		padding: 0.25rem;
+		font-size: 0.8rem;
+	}
+
+	/* Match the numeric inputs, which grow to 2.75rem on touch devices. */
+	@media (pointer: coarse) {
+		.type-select {
+			min-height: 2.75rem;
+		}
+	}
+
+	@media (min-width: 40rem) {
+		.set-main {
+			gap: 0.35rem;
+		}
+
+		.set-main .small-input {
+			width: 5.5ch;
+		}
+
+		.set-main .medium-input {
+			width: 8ch;
+		}
+
+		.type-select {
+			min-width: 6.5rem;
+		}
 	}
 
 	:global(.delete-btn) {
@@ -688,6 +731,7 @@
 		background: transparent;
 		font-size: 1.25rem;
 		line-height: 1;
+		min-width: 2rem;
 	}
 
 	@media (hover: hover) and (pointer: fine) {
