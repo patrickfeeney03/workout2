@@ -105,7 +105,21 @@
 							// so a manual save or the next change submits them.
 						}
 					}
+					// SvelteKit's default action update resets focus to the body after success.
+					// Capture the control that is focused when the response arrives and restore it
+					// only if the update actually stole focus; this never overrides a newer user focus.
+					const focusTarget =
+						document.activeElement instanceof HTMLElement &&
+						document.activeElement !== document.body
+							? document.activeElement
+							: null;
 					await update({ reset: false, invalidateAll: options.invalidateAll ?? true });
+					if (
+						focusTarget?.isConnected &&
+						document.activeElement === document.body
+					) {
+						focusTarget.focus({ preventScroll: true });
+					}
 					if (!next) setSaveState(name, 'saved');
 					return;
 				}
