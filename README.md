@@ -6,8 +6,14 @@ Ideas app stays on PHP; everything on the `gym/` pages of the old app lives here
 - **SvelteKit 2 + Svelte 5 (runes)**, SSR on Cloudflare Workers
 - **D1** (serverless SQLite) for data, schema in `migrations/` — the primary is in **WEUR**
   (`gym-tracker-weur`) with read replication enabled; requests use the D1 Sessions API plus a
-  bookmark cookie so travelling browsers can read from a replica without losing read-your-writes
-  (see [docs/REGIONAL-PERFORMANCE.md](docs/REGIONAL-PERFORMANCE.md))
+  bookmark cookie so reads stay sequential and read-your-writes no matter which database instance
+  serves them (see [docs/REGIONAL-PERFORMANCE.md](docs/REGIONAL-PERFORMANCE.md))
+- **Targeted placement** (`aws:eu-west-2`, in `wrangler.jsonc`): the Worker runs next to the
+  primary, so its D1 round trips are ~15ms instead of ~230–320ms from the receiving edge. Reads are
+  therefore served by the WEUR primary, **not** by the replica nearest the browser — the Sessions
+  API and bookmark are what make that safe, not replica locality. Placement is what currently keeps
+  page loads and set saves cheap from both Ireland and Peru; it also means nothing hosted at the
+  receiving edge (Cache API entries, isolate globals) can shorten a page load further
 - **R2** for exercise images and set media, served through `/media/[type]/[id]`
 - **Vitest + `@cloudflare/vitest-pool-workers`**: tests run in real workerd with D1
 - Legacy PHP bcrypt hashes still verify at login and are transparently rehashed to
@@ -141,8 +147,10 @@ D1 differs from the PHP PDO code in three ways that the services handle:
    for absent FKs.
 3. **Replicated reads can lag.** `src/hooks.server.ts` runs every request through a D1 session and
    stores the session bookmark in the `gym_d1_bookmark_v1` cookie. A write advances the bookmark on
-   the primary; the next page load may use any replica that is at least that fresh. A session is
-   `first-unconstrained`, so reads with no bookmark prefer the nearest replica.
+   the primary; the next page load may use any instance that is at least that fresh. A session is
+   `first-unconstrained`, so reads with no bookmark take the instance the runtime picks — under
+   targeted placement that is the LHR primary itself, not a replica (see the deployment notes
+   above).
 
 ## Tests
 

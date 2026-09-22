@@ -1,11 +1,11 @@
 /**
  * D1 Sessions API plumbing.
  *
- * With read replication enabled, reads can be served by the replica nearest the Worker. A replica
- * is asynchronously updated, so a request that just saw a write must not read from a replica that
- * has not caught up. The Sessions API gives every request sequential consistency, and the bookmark
- * returned by a session lets the next request state "start at least this fresh" when it resumes on
- * a replica.
+ * With read replication enabled, reads can be served by the database instance nearest the Worker
+ * (with targeted placement in `wrangler.jsonc` that is the primary). A replica is asynchronously
+ * updated, so a request that just saw a write must not read from a replica that has not caught up.
+ * The Sessions API gives every request sequential consistency, and the bookmark returned by a
+ * session lets the next request state "start at least this fresh" when it resumes on a replica.
  *
  * The bookmark lives in a cookie. Its name carries a version because bookmarks belong to one
  * database: when the `DB` binding is repointed at a replacement database the old cookie must be
@@ -29,8 +29,9 @@ export function isD1SessionBookmark(value: unknown): value is string {
 
 /**
  * Start a request-scoped session from the browser's bookmark, or unconstrained when the cookie is
- * absent or invalid. Unconstrained lets D1 pick the nearest replica for the first query; the
- * bookmark written back after every request keeps later requests read-your-writes.
+ * absent or invalid. Unconstrained lets D1 pick the nearest instance for the first query — primary
+ * or replica, whichever the Worker's location makes closest; the bookmark written back after every
+ * request keeps later requests read-your-writes.
  */
 export function startD1Session(db: D1Database, bookmark: string | undefined): D1DatabaseSession {
 	return db.withSession(isD1SessionBookmark(bookmark) ? bookmark : 'first-unconstrained');

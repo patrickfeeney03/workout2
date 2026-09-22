@@ -14,12 +14,13 @@
 		"mode": "targeted",
 		"region": "aws:eu-west-2"
 	},
-	// Placement is intentionally off. The Worker runs at its edge default, and D1 read replication
-	// (plus the Sessions API in src/hooks.server.ts) serves reads from the replica nearest the user.
-	// Smart Placement is a traffic-based optimization: it needs requests from several locations
-	// before it moves anything, and pinning the Worker moves *all* requests — including the reads a
-	// replica could have served locally — to one location. Re-evaluate only after measuring median
-	// and tail latency from Ireland and Peru (docs/REGIONAL-PERFORMANCE.md).
+	// Placement is ON (see the block above). The Worker therefore runs next to the primary in LHR,
+	// which means reads are served by the primary — the Sessions API and the bookmark cookie keep
+	// that read-your-writes-consistent, but a replica does not serve them. The consequence is that
+	// any data kept at the receiving edge (Cache API, isolate globals) cannot pay off while this is
+	// enabled: D1 is already ~15ms away, and turning placement off costs ~230ms on every write,
+	// which always forwards to the primary. Re-evaluate only after measuring median and tail latency
+	// from Ireland and Peru (docs/REGIONAL-PERFORMANCE.md).
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
