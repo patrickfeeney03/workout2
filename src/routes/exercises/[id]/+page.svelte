@@ -129,7 +129,13 @@
 				{#each history as entry (entry.workoutExercise.id)}
 					<div class="inset">
 						<div class="row-between">
-							<strong>{entry.workout?.title ?? 'Workout'}</strong>
+							<strong>
+								{#if entry.workout}
+									<a href={`/workouts/${entry.workout.id}`}>{entry.workout.title ?? 'Workout'}</a>
+								{:else}
+									Workout
+								{/if}
+							</strong>
 							<span class="faint small num">
 								{entry.workout?.performedOn ?? entry.workout?.plannedOn ?? ''}
 							</span>
