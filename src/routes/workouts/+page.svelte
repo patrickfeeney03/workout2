@@ -24,6 +24,28 @@
 		if (status === 'skipped') return 'chip chip-danger';
 		return 'chip';
 	}
+
+	type Item = PageData['items'][number];
+
+	function weekLabel(item: Item): string {
+		if (!item.week) return 'No week';
+		return `${item.block?.name ?? 'Unknown Block'} · Week ${item.week.weekNumber ?? ''} (${item.week.weekType || 'Standard'})`;
+	}
+
+	/** Consecutive workouts in the same block week, keeping the list order (newest first). */
+	const weekGroups = $derived.by(() => {
+		const groups: { weekId: number | null; label: string; items: Item[] }[] = [];
+		for (const item of data.items) {
+			const weekId = item.week?.id ?? null;
+			const last = groups.at(-1);
+			if (last && last.weekId === weekId) {
+				last.items.push(item);
+			} else {
+				groups.push({ weekId, label: weekLabel(item), items: [item] });
+			}
+		}
+		return groups;
+	});
 </script>
 
 <svelte:head>
@@ -93,57 +115,64 @@
 	{#if data.items.length === 0}
 		<p class="card muted">No workouts logged yet.</p>
 	{:else}
-		<div class="stack">
-			{#each data.items as item (item.workout.id)}
-				<article class="card">
-					<div class="row-between">
-						<div class="row">
-							<strong>
-								<a href={`/workouts/${item.workout.id}`}>{item.workout.title}</a>
-							</strong>
-							<span class={statusClass(item.workout.status)}>
-								{ucfirst(item.workout.status)}
-							</span>
-						</div>
-						<span class="faint small">{item.plannedLabel}</span>
+		<div class="stack week-groups">
+			{#each weekGroups as group (group.items[0].workout.id)}
+				<section class="week-group" aria-label={group.label}>
+					<div class="week-label faint small">{group.label}</div>
+					<div class="stack week-cards">
+						{#each group.items as item (item.workout.id)}
+							<article class="card">
+								<div class="row-between">
+									<div class="row">
+										<strong>
+											<a href={`/workouts/${item.workout.id}`}>{item.workout.title}</a>
+										</strong>
+										<span class={statusClass(item.workout.status)}>
+											{ucfirst(item.workout.status)}
+										</span>
+									</div>
+									<span class="faint small">{item.plannedLabel}</span>
+								</div>
+
+								{#if item.routine || item.week}
+									<div class="meta stack-sm">
+										{#if item.routine}
+											<div>
+												<strong>Routine:</strong>
+												{item.routine.name}
+												{#if item.routine.splitName || item.routine.splitDay}
+													— <em>{item.routine.splitName ?? ''} (Day {item.routine.splitDay ?? ''})</em>
+												{/if}
+											</div>
+										{/if}
+										{#if item.week}
+											<div>
+												<strong>Block:</strong>
+												{item.block?.name ?? 'Unknown Block'}
+												— Week {item.week.weekNumber ?? ''}
+												({item.week.weekType || 'Standard'})
+											</div>
+										{/if}
+									</div>
+								{/if}
+
+								{#if item.performedLabel || item.durationMinutes}
+									<div class="meta muted">
+										{#if item.performedLabel}
+											Performed: {item.performedLabel}
+										{/if}
+										{#if item.performedLabel && item.durationMinutes}
+											•
+										{/if}
+										{#if item.durationMinutes}
+											{item.durationMinutes} mins
+										{/if}
+									</div>
+								{/if}
+							</article>
+						{/each}
 					</div>
-
-					{#if item.routine || item.week}
-						<div class="meta stack-sm">
-							{#if item.routine}
-								<div>
-									<strong>Routine:</strong>
-									{item.routine.name}
-									{#if item.routine.splitName || item.routine.splitDay}
-										— <em>{item.routine.splitName ?? ''} (Day {item.routine.splitDay ?? ''})</em>
-									{/if}
-								</div>
-							{/if}
-							{#if item.week}
-								<div>
-									<strong>Block:</strong>
-									{item.block?.name ?? 'Unknown Block'}
-									— Week {item.week.weekNumber ?? ''}
-									({item.week.weekType || 'Standard'})
-								</div>
-							{/if}
-						</div>
-					{/if}
-
-					{#if item.performedLabel || item.durationMinutes}
-						<div class="meta muted">
-							{#if item.performedLabel}
-								Performed: {item.performedLabel}
-							{/if}
-							{#if item.performedLabel && item.durationMinutes}
-								•
-							{/if}
-							{#if item.durationMinutes}
-								{item.durationMinutes} mins
-							{/if}
-						</div>
-					{/if}
-				</article>
+				</section>
 			{/each}
 		</div>
 	{/if}
@@ -166,5 +195,41 @@
 
 	.meta strong {
 		font-weight: 600;
+	}
+
+	.week-groups {
+		gap: 1.25rem;
+	}
+
+	/* A light "[" down the left of each week's workouts. */
+	.week-group {
+		position: relative;
+		padding-left: 0.75rem;
+	}
+
+	.week-group::before {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 0.4rem;
+		border: 2px solid var(--border-strong);
+		border-right: none;
+		border-radius: 6px 0 0 6px;
+	}
+
+	/* Tighter than the gap between weeks, so each week reads as one group. */
+	.week-cards {
+		gap: 0.5rem;
+	}
+
+	.week-cards > .card + .card {
+		margin-top: 0;
+	}
+
+	.week-label {
+		margin-bottom: 0.35rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 </style>
