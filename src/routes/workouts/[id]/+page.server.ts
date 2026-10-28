@@ -31,8 +31,8 @@ import type { Actions, PageServerLoad } from './$types';
  * (public/gym/workout.js is only leftover commented code).
  *
  * Every `match ($_POST['action'])` branch becomes a named form action. The htmx handlers that
- * returned rendered HTML now simply return `{ saved: true }` (or a 303 redirect for structural
- * changes) and `use:enhance` re-runs this load function.
+ * returned rendered HTML now simply return `{ saved: true }`; for structural changes (move / add /
+ * delete a set or exercise) `use:enhance` re-runs this load function.
  */
 
 interface SetFieldValues {
@@ -168,12 +168,12 @@ export const actions: Actions = {
 			);
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	delete_exercise: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		const workoutExerciseId = int(form, 'workout_exercise_id');
@@ -181,12 +181,12 @@ export const actions: Actions = {
 			await deleteWorkoutExercise(locals.db, user.id, workoutExerciseId);
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	delete_set: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		const setId = int(form, 'set_id');
@@ -194,12 +194,12 @@ export const actions: Actions = {
 			await deleteWorkoutSet(locals.db, setId, user.id);
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	move_set_up: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		const setId = int(form, 'set_id');
@@ -207,12 +207,12 @@ export const actions: Actions = {
 			await moveWorkoutSet(locals.db, setId, 'up', user.id);
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	move_set_down: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		const setId = int(form, 'set_id');
@@ -220,7 +220,7 @@ export const actions: Actions = {
 			await moveWorkoutSet(locals.db, setId, 'down', user.id);
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	move_exercise: async ({ request, locals, url, params }) => {
@@ -242,12 +242,12 @@ export const actions: Actions = {
 			}
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	add_blank_set: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		const workoutExerciseId = int(form, 'workout_exercise_id');
@@ -255,12 +255,12 @@ export const actions: Actions = {
 			await createEmptyWorkoutSet(locals.db, workoutExerciseId, user.id, 'end');
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	add_blank_set_start: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		const workoutExerciseId = int(form, 'workout_exercise_id');
@@ -268,7 +268,7 @@ export const actions: Actions = {
 			await createEmptyWorkoutSet(locals.db, workoutExerciseId, user.id, 'start');
 		}
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	update_title: async ({ request, locals, url, params }) => {
@@ -366,7 +366,7 @@ export const actions: Actions = {
 
 	create_week: async ({ request, locals, url, params }) => {
 		const user = requireUser(locals, url);
-		const workoutId = requireWorkoutId(params);
+		requireWorkoutId(params);
 		const form = await request.formData();
 
 		await blocks.createBlockWeek(locals.db, user.id, {
@@ -378,7 +378,7 @@ export const actions: Actions = {
 			notes: null
 		});
 
-		throw redirect(303, `/workouts/${workoutId}`);
+		return { saved: true };
 	},
 
 	duplicate: async ({ locals, url, params }) => {

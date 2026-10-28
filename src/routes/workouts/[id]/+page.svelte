@@ -86,6 +86,11 @@
 			inFlight.set(name, true);
 			setSaveState(name, 'saving');
 
+			// Buttons with their own `formaction` (move / add / delete a set or exercise) change what
+			// the page shows, so those always reload the data.
+			const invalidateAll =
+				submitter?.hasAttribute('formaction') || (options.invalidateAll ?? true);
+
 			return async ({ result, update }) => {
 				inFlight.delete(name);
 
@@ -113,7 +118,7 @@
 						document.activeElement !== document.body
 							? document.activeElement
 							: null;
-					await update({ reset: false, invalidateAll: options.invalidateAll ?? true });
+					await update({ reset: false, invalidateAll });
 					if (
 						focusTarget?.isConnected &&
 						document.activeElement === document.body
