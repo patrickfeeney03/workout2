@@ -15,6 +15,9 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<meta name="apple-mobile-web-app-title" content="Gym" />
 	<meta name="theme-color" content="#141419" />
 	<title>Gym Tracker</title>
 </svelte:head>
