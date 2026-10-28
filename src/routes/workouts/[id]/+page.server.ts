@@ -148,8 +148,9 @@ export const actions: Actions = {
 			error(404, 'Not found');
 		}
 
-		// `status` lets the page show the auto-completed state without re-running the whole load.
-		return { saved: true, status: result.status };
+		// `status` and `lastSetAt` let the page show the auto-completed state and the new "Last set"
+		// time without re-running the whole load.
+		return { saved: true, status: result.status, lastSetAt: result.lastSetAt };
 	},
 
 	add_exercise: async ({ request, locals, url, params }) => {

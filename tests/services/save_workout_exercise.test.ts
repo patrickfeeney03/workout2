@@ -5,6 +5,7 @@ import {
 	getDb,
 	queryAll,
 	queryOne,
+	run,
 	seedExercise,
 	seedUser,
 	seedWorkout,
@@ -127,6 +128,28 @@ describe('saveWorkoutExercise', () => {
 			'SELECT actual_reps FROM workout_sets WHERE id = 100'
 		);
 		expect(set?.actual_reps).toBeNull();
+	});
+
+	it('returns the newest set time after the save', async () => {
+		const db = getDb();
+		await seedUser({ id: 1 });
+		await seedExercise({ id: 5, userId: 1 });
+		await seedWorkout({ id: 1, userId: 1 });
+		await seedWorkoutExercise({ id: 10, workoutId: 1, exerciseId: 5, sortOrder: 1 });
+		await seedWorkoutSet({ id: 100, workoutExerciseId: 10, setNumber: 1 });
+		await seedWorkoutSet({ id: 101, workoutExerciseId: 10, setNumber: 2, isDeleted: 1 });
+		// Setting modified_at explicitly skips the trigger, so these stamps stick.
+		await run("UPDATE workout_sets SET modified_at = '2026-01-01 00:00:00' WHERE id = 100");
+		await run("UPDATE workout_sets SET modified_at = '2099-01-01 00:00:00' WHERE id = 101");
+
+		const result = await saveWorkoutExercise(db, 1, 10, [setUpdate(100, 8, 80)]);
+
+		const set = await queryOne<{ modified_at: string }>(
+			'SELECT modified_at FROM workout_sets WHERE id = 100'
+		);
+		expect(set?.modified_at).not.toBe('2026-01-01 00:00:00');
+		// The deleted set's later stamp is ignored.
+		expect(result.lastSetAt).toBe(set?.modified_at);
 	});
 
 	it('completes the workout when every active set has reps and weight', async () => {

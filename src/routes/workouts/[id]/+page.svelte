@@ -11,7 +11,12 @@
 
 	const workout = $derived(data.workout);
 	const allSets = $derived(data.exercises.flatMap((item) => item.sets));
-	const overallUpdated = $derived(latestStamp(allSets.map((set) => set.modifiedAt)));
+	/** Newest set time returned by each exercise form's last save, keyed by form name, so "Last set"
+	 * updates without reloading the page data. */
+	const lastSetAt = $state<Record<string, string>>({});
+	const overallUpdated = $derived(
+		latestStamp([...allSets.map((set) => set.modifiedAt), ...Object.values(lastSetAt)])
+	);
 
 	const durationSeconds = $derived(workout.durationSeconds);
 	const durationHours = $derived(
@@ -95,10 +100,12 @@
 				inFlight.delete(name);
 
 				if (result.type === 'success') {
-					// The server returns the (possibly auto-completed) status so the page can reflect it
-					// without re-running the whole load; any other success falls back to the loaded data.
-					const status = (result.data as { status?: unknown } | undefined)?.status;
-					workoutStatus = typeof status === 'string' ? status : null;
+					// The server returns the (possibly auto-completed) status and the new last set time so
+					// the page can reflect them without re-running the whole load; any other success falls
+					// back to the loaded data.
+					const saved = result.data as { status?: unknown; lastSetAt?: unknown } | undefined;
+					workoutStatus = typeof saved?.status === 'string' ? saved.status : null;
+					if (typeof saved?.lastSetAt === 'string') lastSetAt[name] = saved.lastSetAt;
 					const next = queued.get(name);
 					queued.delete(name);
 					if (next) {
@@ -332,7 +339,10 @@
 		{#each data.exercises as item (item.association.id)}
 			{@const wex = item.association}
 			{@const exercise = item.exercise}
-			{@const updated = latestStamp(item.sets.map((set) => set.modifiedAt))}
+			{@const updated = latestStamp([
+				...item.sets.map((set) => set.modifiedAt),
+				lastSetAt[`exercise-${wex.id}`]
+			])}
 			<form
 				method="POST"
 				action="?/update_workout_sets"
@@ -405,6 +415,7 @@
 					<label for={`wex-notes-${wex.id}`}>Notes / warm-up</label>
 					<textarea
 						id={`wex-notes-${wex.id}`}
+						class="exercise-notes"
 						name="workout_exercise_notes"
 						rows="1"
 						placeholder="e.g. any special warm-up routine for this exercise">{wex.notes ?? ''}</textarea
@@ -760,10 +771,17 @@
 		}
 	}
 
+	/* Grow with the text instead of scrolling inside one line. */
+	.exercise-notes {
+		resize: vertical;
+		field-sizing: content;
+	}
+
 	.set-notes {
 		min-height: 2.25rem;
 		padding: 0.35rem 0.5rem;
-		font-size: 0.85rem;
+		/* 16px: anything smaller makes iOS Safari zoom the page when the field is tapped. */
+		font-size: 1rem;
 		resize: vertical;
 		field-sizing: content;
 	}

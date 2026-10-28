@@ -20,6 +20,7 @@
 
 import { allRows, bind, chunk, first, IN_CLAUSE_CHUNK, insertId, placeholders, run, type Db } from '$lib/server/db';
 import {
+	optStr,
 	workoutExerciseFromRow,
 	workoutFromRow,
 	workoutSetFromRow,
@@ -471,18 +472,20 @@ export interface WorkoutExerciseUpdate {
 	notes?: string | null;
 }
 
-/** Result of `saveWorkoutExercise`: whether the exercise was owned, and the workout status after
- * the completion check so callers can update the page without re-fetching it. */
+/** Result of `saveWorkoutExercise`: whether the exercise was owned, the workout status after
+ * the completion check, and the newest `modified_at` of the exercise's sets (stamped by the
+ * `workout_sets_modified_at` trigger), so callers can update the page without re-fetching it. */
 export interface SaveWorkoutExerciseResult {
 	saved: boolean;
 	status: string | null;
+	lastSetAt: string | null;
 }
 
 /**
  * Saves every posted set of one workout exercise, plus its rest and notes, as a single atomic
  * `db.batch`, then completes the workout when every active set has both actual reps and weight.
  * The completion statement runs second to last, so it sees the just-updated values; a final
- * `SELECT` in the same batch returns the resulting status (no extra round trip).
+ * `SELECT` in the same batch returns the resulting status and last set time (no extra round trip).
  *
  * Set updates are scoped to `workout_exercise_id` (and `is_deleted = 0`), so a posted id from
  * another exercise or user is ignored — the same result as the old per-set ownership lookup, but
@@ -586,24 +589,26 @@ export async function saveWorkoutExercise(
 	);
 
 	// Final read in the same batch: a row means the exercise is owned and gives the caller the
-	// resulting status without another round trip.
+	// resulting status and last set time without another round trip.
 	statements.push(
 		bind(
 			db,
-			`SELECT status FROM workouts
+			`SELECT status,
+				(SELECT MAX(modified_at) FROM workout_sets
+				WHERE workout_exercise_id = ? AND is_deleted = 0) AS last_set_at
+			FROM workouts
 			WHERE id = (SELECT workout_id FROM workout_exercises WHERE id = ?)
 				AND user_id = ?`,
-			[workoutExerciseId, userId]
+			[workoutExerciseId, workoutExerciseId, userId]
 		)
 	);
 
 	const results = await db.batch<Row>(statements);
 	const statusRow = results[results.length - 1]?.results?.[0];
 	if (!statusRow) {
-		return { saved: false, status: null };
+		return { saved: false, status: null, lastSetAt: null };
 	}
-	const status = statusRow.status;
-	return { saved: true, status: status === null || status === undefined ? null : String(status) };
+	return { saved: true, status: optStr(statusRow.status), lastSetAt: optStr(statusRow.last_set_at) };
 }
 
 export async function deleteWorkoutExercise(
