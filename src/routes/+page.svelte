@@ -3,6 +3,7 @@
 		CalendarDays,
 		Dna,
 		Dumbbell,
+		FileDown,
 		Repeat2,
 		Wrench
 	} from 'lucide-svelte';
@@ -416,6 +417,9 @@
 		</a>
 		<a class="dashboard-card quick" href="/movement-patterns">
 			<Dna size={22} strokeWidth={1.75} /> Patterns
+		</a>
+		<a class="dashboard-card quick" href="/export">
+			<FileDown size={22} strokeWidth={1.75} /> Export
 		</a>
 	</section>
 </main>
